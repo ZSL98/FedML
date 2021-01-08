@@ -7,6 +7,9 @@ wget --load-cookies /tmp/cookies.txt "https://docs.google.com/uc?export=download
 
 unzip MNIST.zip
 
+
+mkdir train
+mkdir test
 mv mnist/train train
 mv mnist/test test
 rm -rf mnist

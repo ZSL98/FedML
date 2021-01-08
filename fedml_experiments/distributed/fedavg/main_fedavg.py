@@ -272,6 +272,16 @@ if __name__ == "__main__":
     # initialize distributed computing (MPI)
     comm, process_id, worker_number = FedML_init()
 
+    if process_id == 0:
+        wandb.init(
+            # project="federated_nas",
+            project="fedml",
+            name="FedAVG(d)" + str(args.partition_method) + "r" + str(args.comm_round) + "-e" + str(
+                args.epochs) + "-lr" + str(
+                args.lr),
+            config=args
+        )
+
     # parse python script input parameters
     parser = argparse.ArgumentParser()
     args = add_args(parser)
@@ -292,17 +302,6 @@ if __name__ == "__main__":
                  ", host name = " + hostname + "########" +
                  ", process ID = " + str(os.getpid()) +
                  ", process Name = " + str(psutil.Process(os.getpid())))
-
-    # initialize the wandb machine learning experimental tracking platform (https://www.wandb.com/).
-    if process_id == 0:
-        wandb.init(
-            # project="federated_nas",
-            project="fedml",
-            name="FedAVG(d)" + str(args.partition_method) + "r" + str(args.comm_round) + "-e" + str(
-                args.epochs) + "-lr" + str(
-                args.lr),
-            config=args
-        )
 
     # Set the random seed. The np.random seed determines the dataset partition.
     # The torch_manual_seed determines the initial weight.
