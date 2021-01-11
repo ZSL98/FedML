@@ -26,6 +26,7 @@ from fedml_api.data_preprocessing.stackoverflow_nwp.data_loader import load_part
 from fedml_api.data_preprocessing.MNIST.data_loader import load_partition_data_mnist
 from fedml_api.data_preprocessing.ImageNet.data_loader import load_partition_data_ImageNet
 from fedml_api.data_preprocessing.Landmarks.data_loader import load_partition_data_landmarks
+from fedml_api.data_preprocessing.Landmarks.data_loader import load_partition_data_extra_sensory
 
 from fedml_api.data_preprocessing.cifar10.data_loader import load_partition_data_cifar10
 from fedml_api.data_preprocessing.cifar100.data_loader import load_partition_data_cifar100
@@ -115,6 +116,13 @@ def load_data(args, dataset_name):
         For shallow NN or linear models, 
         we uniformly sample a fraction of clients each round (as the original FedAvg paper)
         """
+        args.client_num_in_total = client_num
+
+    elif dataset_name == "ExtraSensory":
+        logging.info("load_data. dataset_name = %s" % dataset_name)
+        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
+        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
+        class_num = load_partition_data_extra_sensory(args.dataset, args.data_dir)
         args.client_num_in_total = client_num
 
     elif dataset_name == "femnist":
@@ -272,16 +280,6 @@ if __name__ == "__main__":
     # initialize distributed computing (MPI)
     comm, process_id, worker_number = FedML_init()
 
-    if process_id == 0:
-        wandb.init(
-            # project="federated_nas",
-            project="fedml",
-            name="FedAVG(d)" + str(args.partition_method) + "r" + str(args.comm_round) + "-e" + str(
-                args.epochs) + "-lr" + str(
-                args.lr),
-            config=args
-        )
-
     # parse python script input parameters
     parser = argparse.ArgumentParser()
     args = add_args(parser)
@@ -302,6 +300,16 @@ if __name__ == "__main__":
                  ", host name = " + hostname + "########" +
                  ", process ID = " + str(os.getpid()) +
                  ", process Name = " + str(psutil.Process(os.getpid())))
+
+    if process_id == 0:
+        wandb.init(
+            # project="federated_nas",
+            project="fedml",
+            name="FedAVG(d)" + str(args.partition_method) + "r" + str(args.comm_round) + "-e" + str(
+                args.epochs) + "-lr" + str(
+                args.lr),
+            config=args
+        )
 
     # Set the random seed. The np.random seed determines the dataset partition.
     # The torch_manual_seed determines the initial weight.
