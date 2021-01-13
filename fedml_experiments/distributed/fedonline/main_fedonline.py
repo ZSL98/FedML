@@ -14,22 +14,10 @@ import wandb
 from mpi4py import MPI
 
 # add the FedML root directory to the python path
-
+os.chdir(sys.path[0])
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 
-from fedml_api.data_preprocessing.FederatedEMNIST.data_loader import load_partition_data_federated_emnist
-from fedml_api.data_preprocessing.fed_cifar100.data_loader import load_partition_data_federated_cifar100
-from fedml_api.data_preprocessing.fed_shakespeare.data_loader import load_partition_data_federated_shakespeare
-from fedml_api.data_preprocessing.shakespeare.data_loader import load_partition_data_shakespeare
-from fedml_api.data_preprocessing.stackoverflow_lr.data_loader import load_partition_data_federated_stackoverflow_lr
-from fedml_api.data_preprocessing.stackoverflow_nwp.data_loader import load_partition_data_federated_stackoverflow_nwp
-from fedml_api.data_preprocessing.MNIST.data_loader import load_partition_data_mnist
-from fedml_api.data_preprocessing.ImageNet.data_loader import load_partition_data_ImageNet
-from fedml_api.data_preprocessing.Landmarks.data_loader import load_partition_data_landmarks
-
-from fedml_api.data_preprocessing.cifar10.data_loader import load_partition_data_cifar10
-from fedml_api.data_preprocessing.cifar100.data_loader import load_partition_data_cifar100
-from fedml_api.data_preprocessing.cinic10.data_loader import load_partition_data_cinic10
+from fedml_api.data_preprocessing.extra_sensory.data_loader import load_partition_data_extra_sensory
 
 from fedml_api.model.cv.cnn import CNN_DropOut
 from fedml_api.model.cv.resnet_gn import resnet18
@@ -41,7 +29,7 @@ from fedml_api.model.cv.mobilenet_v3 import MobileNetV3
 from fedml_api.model.cv.efficientnet import EfficientNet
 
 from fedml_api.distributed.fedavg.FedAvgAPI import FedML_init, FedML_FedAvg_distributed
-
+from fedml_api.distributed.fedavg.FedAvgAPI import FedML_init, FedML_FedOnline_distributed
 
 def add_args(parser):
     """
@@ -64,7 +52,7 @@ def add_args(parser):
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
                         help='partition alpha (default: 0.5)')
 
-    parser.add_argument('--client_num_in_total', type=int, default=1000, metavar='NN',
+    parser.add_argument('--client_num_in_total', type=int, default=60, metavar='NN',
                         help='number of workers in a distributed cluster')
 
     parser.add_argument('--client_num_per_round', type=int, default=2, metavar='NN',
@@ -105,114 +93,14 @@ def add_args(parser):
     return args
 
 
-def load_data(args, dataset_name):
-    if dataset_name == "mnist":
+def load_data(args, dataset_name):  
+    if dataset_name == "ExtraSensory":
         logging.info("load_data. dataset_name = %s" % dataset_name)
-        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_mnist(args.batch_size)
-
-        print(class_num)
-        """
-        For shallow NN or linear models, 
-        we uniformly sample a fraction of clients each round (as the original FedAvg paper)
-        """
+        client_num, test_global, train_data_local_dict, test_data_local_dict, \
+        class_num = load_partition_data_extra_sensory(args.dataset, args.data_dir)
         args.client_num_in_total = client_num
 
-    elif dataset_name == "femnist":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_federated_emnist(args.dataset, args.data_dir)
-        args.client_num_in_total = client_num
-
-    elif dataset_name == "shakespeare":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_shakespeare(args.batch_size)
-        args.client_num_in_total = client_num
-
-    elif dataset_name == "fed_shakespeare":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_federated_shakespeare(args.dataset, args.data_dir)
-        args.client_num_in_total = client_num
-
-    elif dataset_name == "fed_cifar100":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_federated_cifar100(args.dataset, args.data_dir)
-        args.client_num_in_total = client_num
-    elif dataset_name == "stackoverflow_lr":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_federated_stackoverflow_lr(args.dataset, args.data_dir)
-        args.client_num_in_total = client_num
-    elif dataset_name == "stackoverflow_nwp":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_federated_stackoverflow_nwp(args.dataset, args.data_dir)
-        args.client_num_in_total = client_num
-    elif dataset_name == "ILSVRC2012":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_ImageNet(dataset=dataset_name, data_dir=args.data_dir,
-                                                 partition_method=None, partition_alpha=None,
-                                                 client_number=args.client_num_in_total, batch_size=args.batch_size)
-
-    elif dataset_name == "gld23k":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        args.client_num_in_total = 233
-        fed_train_map_file = os.path.join(args.data_dir, 'mini_gld_train_split.csv')
-        fed_test_map_file = os.path.join(args.data_dir, 'mini_gld_test.csv')
-        args.data_dir = os.path.join(args.data_dir, 'images')
-
-        train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_landmarks(dataset=dataset_name, data_dir=args.data_dir,
-                                                  fed_train_map_file=fed_train_map_file,
-                                                  fed_test_map_file=fed_test_map_file,
-                                                  partition_method=None, partition_alpha=None,
-                                                  client_number=args.client_num_in_total, batch_size=args.batch_size)
-
-    elif dataset_name == "gld160k":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        args.client_num_in_total = 1262
-        fed_train_map_file = os.path.join(args.data_dir, 'federated_train.csv')
-        fed_test_map_file = os.path.join(args.data_dir, 'test.csv')
-        args.data_dir = os.path.join(args.data_dir, 'images')
-
-        train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_landmarks(dataset=dataset_name, data_dir=args.data_dir,
-                                                  fed_train_map_file=fed_train_map_file,
-                                                  fed_test_map_file=fed_test_map_file,
-                                                  partition_method=None, partition_alpha=None,
-                                                  client_number=args.client_num_in_total, batch_size=args.batch_size)
-
-
-    else:
-        if dataset_name == "cifar10":
-            data_loader = load_partition_data_cifar10
-        elif dataset_name == "cifar100":
-            data_loader = load_partition_data_cifar100
-        elif dataset_name == "cinic10":
-            data_loader = load_partition_data_cinic10
-        else:
-            data_loader = load_partition_data_cifar10
-
-        train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = data_loader(args.dataset, args.data_dir, args.partition_method,
-                                args.partition_alpha, args.client_num_in_total, args.batch_size)
-    dataset = [train_data_num, test_data_num, train_data_global, test_data_global,
-               train_data_local_num_dict, train_data_local_dict, test_data_local_dict, class_num]
+    dataset = [test_global, train_data_local_dict, test_data_local_dict, class_num]
     return dataset
 
 
@@ -244,7 +132,6 @@ def create_model(args, model_name, output_dim):
         model = resnet56(class_num=output_dim)
     elif model_name == "mobilenet":
         model = mobilenet(class_num=output_dim)
-    # TODO
     elif model_name == 'mobilenet_v3':
         '''model_mode \in {LARGE: 5.15M, SMALL: 2.94M}'''
         model = MobileNetV3(model_mode='LARGE')
@@ -327,19 +214,16 @@ if __name__ == "__main__":
 
     # load data
     dataset = load_data(args, args.dataset)
-    [train_data_num, test_data_num, train_data_global, test_data_global,
-     train_data_local_num_dict, train_data_local_dict, test_data_local_dict, class_num] = dataset
-
+    [test_global, train_data_local_dict, test_data_local_dict, class_num] = dataset
     # create model.
     # Note if the model is DNN (e.g., ResNet), the training will be very slow.
     # In this case, please use our FedML distributed version (./fedml_experiments/distributed_fedavg)
-    model = create_model(args, model_name=args.model, output_dim=dataset[7])
+    model = create_model(args, model_name=args.model, output_dim=dataset[3])
 
     try:
         # start "federated averaging (FedAvg)"
-        FedML_FedAvg_distributed(process_id, worker_number, device, comm,
-                                 model, train_data_num, train_data_global, test_data_global,
-                                 train_data_local_num_dict, train_data_local_dict, test_data_local_dict, args)
+        FedML_FedOnline_distributed(process_id, worker_number, device, comm,
+                                 model, test_global, train_data_local_dict, test_data_local_dict, args)
     except Exception as e:
         print(e)
         logging.info('traceback.format_exc():\n%s' % traceback.format_exc())
