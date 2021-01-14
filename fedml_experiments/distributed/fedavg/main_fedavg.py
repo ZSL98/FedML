@@ -14,7 +14,7 @@ import wandb
 from mpi4py import MPI
 
 # add the FedML root directory to the python path
-
+os.chdir(sys.path[0])
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 
 from fedml_api.data_preprocessing.FederatedEMNIST.data_loader import load_partition_data_federated_emnist
@@ -273,7 +273,11 @@ def init_training_device(process_ID, fl_worker_num, gpu_num_per_machine):
 if __name__ == "__main__":
     # initialize distributed computing (MPI)
     comm, process_id, worker_number = FedML_init()
-
+    logging.basicConfig(level=logging.DEBUG,
+                        format=str(
+                            process_id) + ' - %(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+                        datefmt='%a, %d %b %Y %H:%M:%S')
+                        
     # parse python script input parameters
     parser = argparse.ArgumentParser()
     args = add_args(parser)
@@ -285,10 +289,6 @@ if __name__ == "__main__":
 
     # customize the log format
     # logging.basicConfig(level=logging.INFO,
-    logging.basicConfig(level=logging.DEBUG,
-                        format=str(
-                            process_id) + ' - %(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
-                        datefmt='%a, %d %b %Y %H:%M:%S')
     hostname = socket.gethostname()
     logging.info("#############process ID = " + str(process_id) +
                  ", host name = " + hostname + "########" +

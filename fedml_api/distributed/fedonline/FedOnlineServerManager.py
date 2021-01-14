@@ -15,7 +15,7 @@ except ImportError:
     from FedML.fedml_core.distributed.server.server_manager import ServerManager
 
 
-class FedAVGServerManager(ServerManager):
+class FedOnlineServerManager(ServerManager):
     def __init__(self, args, aggregator, comm=None, rank=0, size=0, backend="MPI", is_preprocessed=False):
         super().__init__(args, comm, rank, size, backend)
         self.args = args

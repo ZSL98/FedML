@@ -3,7 +3,9 @@ DEFAULT_TRAIN_CLINETS_NUM = 60
 import numpy as np
 import gzip
 import io
+import os
 import torch
+import warnings
 
 def parse_header_of_csv(csv_str):
     # Isolate the headline columns:
@@ -119,8 +121,10 @@ def project_features_to_selected_sensors(X,feat_sensor_names,sensors_to_use):
     return X
 
 def estimate_standardization_params(X_train):
-    mean_vec = np.nanmean(X_train,axis=0)
-    std_vec = np.nanstd(X_train,axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        mean_vec = np.nanmean(X_train,axis=0)
+        std_vec = np.nanstd(X_train,axis=0)
     return (mean_vec,std_vec)
 
 def standardize_features(X,mean_vec,std_vec):
@@ -153,6 +157,7 @@ def preprocess_extra_sensory(X, Y, M, timestamps, feature_names, label_names):
     X_all = project_features_to_selected_sensors(np.array(X_all),feat_sensor_names,sensors_to_use)
     (mean_vec,std_vec) = estimate_standardization_params(X_all)
     X_all = standardize_features(X_all, mean_vec, std_vec)
+    X_all[np.isnan(X_all)] = 0.
 
     return X_all, Y_all, M_all, T_all
 
@@ -193,8 +198,8 @@ def load_partition_data_extra_sensory(data_path='../../../data/extra_sensory/Ext
             #train_data_num += len(X)
             #test_data_num = train_data_num
             # TODO: train_data_num and test_data_num are for what?
-            time_horizon = len(X) - 500
-            batch_size = 10
+            time_horizon = len(X_all) - 500
+            batch_size = 16
             train_X = X_all[:time_horizon]
             test_X = X_all[time_horizon+1:]
             train_Y = Y_all[:time_horizon]

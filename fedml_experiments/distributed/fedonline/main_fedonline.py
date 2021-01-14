@@ -28,8 +28,7 @@ from fedml_api.model.linear.lr import LogisticRegression
 from fedml_api.model.cv.mobilenet_v3 import MobileNetV3
 from fedml_api.model.cv.efficientnet import EfficientNet
 
-from fedml_api.distributed.fedavg.FedAvgAPI import FedML_init, FedML_FedAvg_distributed
-from fedml_api.distributed.fedavg.FedAvgAPI import FedML_init, FedML_FedOnline_distributed
+from fedml_api.distributed.fedonline.FedOnlineAPI import FedML_init, FedML_FedOnline_distributed
 
 def add_args(parser):
     """
@@ -40,7 +39,7 @@ def add_args(parser):
     parser.add_argument('--model', type=str, default='lr', metavar='N',
                         help='neural network used in training')
 
-    parser.add_argument('--dataset', type=str, default='mnist', metavar='N',
+    parser.add_argument('--dataset', type=str, default='ExtraSensory', metavar='N',
                         help='dataset used for training')
 
     parser.add_argument('--data_dir', type=str, default='./../../../data/mnist',
@@ -55,16 +54,16 @@ def add_args(parser):
     parser.add_argument('--client_num_in_total', type=int, default=60, metavar='NN',
                         help='number of workers in a distributed cluster')
 
-    parser.add_argument('--client_num_per_round', type=int, default=2, metavar='NN',
+    parser.add_argument('--client_num_per_round', type=int, default=10, metavar='NN',
                         help='number of workers')
 
-    parser.add_argument('--batch_size', type=int, default=10, metavar='N',
+    parser.add_argument('--batch_size', type=int, default=32, metavar='N',
                         help='input batch size for training (default: 64)')
 
     parser.add_argument('--client_optimizer', type=str, default='adam',
                         help='SGD with momentum; adam')
 
-    parser.add_argument('--lr', type=float, default=0.03, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.0005, metavar='LR',
                         help='learning rate (default: 0.001)')
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.001)
@@ -72,7 +71,7 @@ def add_args(parser):
     parser.add_argument('--epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained locally')
 
-    parser.add_argument('--comm_round', type=int, default=20,
+    parser.add_argument('--comm_round', type=int, default=50,
                         help='how many round of communications we shoud use')
 
     parser.add_argument('--is_mobile', type=int, default=0,
@@ -96,11 +95,11 @@ def add_args(parser):
 def load_data(args, dataset_name):  
     if dataset_name == "ExtraSensory":
         logging.info("load_data. dataset_name = %s" % dataset_name)
-        client_num, test_global, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_extra_sensory(args.dataset, args.data_dir)
+        client_num, test_data_global, train_data_local_dict, test_data_local_dict, \
+        class_num = load_partition_data_extra_sensory()
         args.client_num_in_total = client_num
 
-    dataset = [test_global, train_data_local_dict, test_data_local_dict, class_num]
+    dataset = [test_data_global, train_data_local_dict, test_data_local_dict, class_num]
     return dataset
 
 
@@ -110,6 +109,9 @@ def create_model(args, model_name, output_dim):
     if model_name == "lr" and args.dataset == "mnist":
         logging.info("LogisticRegression + MNIST")
         model = LogisticRegression(28 * 28, output_dim)
+    elif model_name == "lr" and args.dataset == "ExtraSensory":
+        logging.info("LogisticRegression + ExtraSensory")
+        model = LogisticRegression(72, output_dim)
     elif model_name == "rnn" and args.dataset == "shakespeare":
         logging.info("RNN + shakespeare")
         model = RNN_OriginalFedAvg()
@@ -143,6 +145,8 @@ def create_model(args, model_name, output_dim):
 
 def init_training_device(process_ID, fl_worker_num, gpu_num_per_machine):
     # initialize the mapping from process ID to GPU ID: <process ID, GPU ID>
+    return torch.device("cpu")
+    '''
     if process_ID == 0:
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         return device
@@ -153,13 +157,17 @@ def init_training_device(process_ID, fl_worker_num, gpu_num_per_machine):
 
     logging.info(process_gpu_dict)
     device = torch.device("cuda:" + str(process_gpu_dict[process_ID - 1]) if torch.cuda.is_available() else "cpu")
-    logging.info(device)
     return device
+    '''
 
 
 if __name__ == "__main__":
     # initialize distributed computing (MPI)
     comm, process_id, worker_number = FedML_init()
+    logging.basicConfig(level=logging.DEBUG,
+                        format=str(
+                            process_id) + ' - %(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+                        datefmt='%a, %d %b %Y %H:%M:%S')
 
     # parse python script input parameters
     parser = argparse.ArgumentParser()
@@ -167,15 +175,11 @@ if __name__ == "__main__":
     logging.info(args)
 
     # customize the process name
-    str_process_name = "FedAvg (distributed):" + str(process_id)
+    str_process_name = "FedOnline:" + str(process_id)
     setproctitle.setproctitle(str_process_name)
 
     # customize the log format
     # logging.basicConfig(level=logging.INFO,
-    logging.basicConfig(level=logging.DEBUG,
-                        format=str(
-                            process_id) + ' - %(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
-                        datefmt='%a, %d %b %Y %H:%M:%S')
     hostname = socket.gethostname()
     logging.info("#############process ID = " + str(process_id) +
                  ", host name = " + hostname + "########" +
@@ -186,9 +190,8 @@ if __name__ == "__main__":
         wandb.init(
             # project="federated_nas",
             project="fedml",
-            name="FedAVG(d)" + str(args.partition_method) + "r" + str(args.comm_round) + "-e" + str(
-                args.epochs) + "-lr" + str(
-                args.lr),
+            name="Fed-b" + str(args.batch_size) + "-r" + str(args.comm_round) + "-e" + str(
+                args.epochs) + "-lr" + str(args.lr) + "-c" + str(args.client_num_per_round),
             config=args
         )
 
@@ -214,7 +217,7 @@ if __name__ == "__main__":
 
     # load data
     dataset = load_data(args, args.dataset)
-    [test_global, train_data_local_dict, test_data_local_dict, class_num] = dataset
+    [test_data_global, train_data_local_dict, test_data_local_dict, class_num] = dataset
     # create model.
     # Note if the model is DNN (e.g., ResNet), the training will be very slow.
     # In this case, please use our FedML distributed version (./fedml_experiments/distributed_fedavg)
@@ -223,7 +226,7 @@ if __name__ == "__main__":
     try:
         # start "federated averaging (FedAvg)"
         FedML_FedOnline_distributed(process_id, worker_number, device, comm,
-                                 model, test_global, train_data_local_dict, test_data_local_dict, args)
+                                 model, test_data_global, train_data_local_dict, test_data_local_dict, args)
     except Exception as e:
         print(e)
         logging.info('traceback.format_exc():\n%s' % traceback.format_exc())
