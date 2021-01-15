@@ -188,6 +188,7 @@ def load_partition_data_extra_sensory(data_path='../../../data/extra_sensory/Ext
     client_idx = 0
     train_data_local_dict = dict()
     test_data_local_dict = dict()
+    batch_size_dict = dict()
     test_data_global = list()
     for user_data_file in files:
         if user_data_file.endswith('.csv.gz'):
@@ -198,14 +199,15 @@ def load_partition_data_extra_sensory(data_path='../../../data/extra_sensory/Ext
             #train_data_num += len(X)
             #test_data_num = train_data_num
             # TODO: train_data_num and test_data_num are for what?
-            time_horizon = len(X_all) - 500
-            batch_size = 16
+            time_horizon = int(len(X_all)*0.7)
             train_X = X_all[:time_horizon]
             test_X = X_all[time_horizon+1:]
             train_Y = Y_all[:time_horizon]
             test_Y = Y_all[time_horizon+1:]
-            train_batch = batch_data(train_X, train_Y, batch_size)
-            test_batch = batch_data(test_X, test_Y, batch_size)
+            #batch_size_dict[client_idx] = get_batch_size(client_idx)
+            batch_size_dict[client_idx] = 4
+            train_batch = batch_data(train_X, train_Y, batch_size_dict[client_idx])
+            test_batch = batch_data(test_X, test_Y, batch_size_dict[client_idx])
             train_data_local_dict[client_idx] = train_batch
             test_data_local_dict[client_idx] = test_batch
             test_data_global += test_batch

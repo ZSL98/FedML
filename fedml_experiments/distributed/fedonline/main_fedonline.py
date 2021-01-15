@@ -57,7 +57,7 @@ def add_args(parser):
     parser.add_argument('--client_num_per_round', type=int, default=10, metavar='NN',
                         help='number of workers')
 
-    parser.add_argument('--batch_size', type=int, default=32, metavar='N',
+    parser.add_argument('--batch_size', type=int, default=4, metavar='N',
                         help='input batch size for training (default: 64)')
 
     parser.add_argument('--client_optimizer', type=str, default='adam',
@@ -164,10 +164,6 @@ def init_training_device(process_ID, fl_worker_num, gpu_num_per_machine):
 if __name__ == "__main__":
     # initialize distributed computing (MPI)
     comm, process_id, worker_number = FedML_init()
-    logging.basicConfig(level=logging.DEBUG,
-                        format=str(
-                            process_id) + ' - %(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
-                        datefmt='%a, %d %b %Y %H:%M:%S')
 
     # parse python script input parameters
     parser = argparse.ArgumentParser()
@@ -177,6 +173,11 @@ if __name__ == "__main__":
     # customize the process name
     str_process_name = "FedOnline:" + str(process_id)
     setproctitle.setproctitle(str_process_name)
+
+    logging.basicConfig(level=logging.DEBUG,
+                        format=str(
+                            process_id) + ' - %(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+                        datefmt='%a, %d %b %Y %H:%M:%S')    
 
     # customize the log format
     # logging.basicConfig(level=logging.INFO,
