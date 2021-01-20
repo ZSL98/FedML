@@ -29,7 +29,7 @@ class FedOnlineServerManager(ServerManager):
 
     def send_init_msg(self):
         # sampling clients
-        client_indexes = self.aggregator.client_sampling(self.round_idx, self.args.client_num_in_total,
+        client_indexes = self.aggregator.fixed_client_sampling(self.round_idx, self.args.client_num_in_total,
                                                          self.args.client_num_per_round)
         global_model_params = self.aggregator.get_global_model_params()
         for process_id in range(1, self.size):
@@ -63,7 +63,7 @@ class FedOnlineServerManager(ServerManager):
                 print('indexes of clients: ' + str(client_indexes))
             else:
                 # # sampling clients
-                client_indexes = self.aggregator.client_sampling(self.round_idx, self.args.client_num_in_total,
+                client_indexes = self.aggregator.fixed_client_sampling(self.round_idx, self.args.client_num_in_total,
                                                                  self.args.client_num_per_round)
 
             print("size = %d" % self.size)

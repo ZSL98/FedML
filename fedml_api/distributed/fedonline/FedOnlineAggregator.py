@@ -8,7 +8,9 @@ import torch
 import wandb
 
 from .utils import transform_list_to_tensor
-
+from sklearn.decomposition import PCA
+from sklearn.neighbors import NearestNeighbors
+from fedml_api.data_preprocessing.MNIST.data_loader import read_data
 
 class FedOnlineAggregator(object):
 
@@ -80,6 +82,45 @@ class FedOnlineAggregator(object):
         logging.info("aggregate time cost: %d" % (end_time - start_time))
         return averaged_params
 
+    def mnist_score(self, reduced_dimension):
+        train_path="./../../../data/MNIST/train"
+        test_path="./../../../data/MNIST/test"
+        users, groups, train_data, test_data = read_data(train_path, test_path)
+
+        pca = PCA(n_components=reduced_dimension)
+        all_data = np.zeros(784)
+        for user in users:
+            Data = train_data[user]['x']
+            all_data = np.vstack((all_data, Data))
+        pca_method = pca.fit(all_data)
+
+        nbrs = NearestNeighbors(n_neighbors=100, algorithm='kd_tree').fit(all_data)
+        score = dict()
+        client_idx = 0
+        for user in users:
+            user_x = pca_method.transform(train_data[user]['x'])
+            user_y = train_data[user]['y']
+            user_Data = np.hstack((user_x, np.expand_dims(user_y, axis = 1)))
+            distances, indices = nbrs.kneighbors(user_Data)
+            score[client_idx] = np.mean(distances)
+            client_idx += 1
+        score = sorted(score.items(), key = lambda kv:(kv[1], kv[0]))
+        return score
+
+    def fixed_client_sampling(self, round_idx, client_num_in_total, client_num_per_round):
+        client_indexes = []
+        if client_num_in_total == client_num_per_round:
+            client_indexes = [client_index for client_index in range(client_num_in_total)]
+        else:
+            num_clients = min(client_num_per_round, client_num_in_total)
+            np.random.seed(500)
+            s = self.mnist_score(2)
+            for i in range(num_clients):
+                client_indexes.append(s[-i][0])
+            client_indexes = np.array(client_indexes)
+        logging.info("client_indexes = %s" % str(client_indexes))
+        return client_indexes
+
     def client_sampling(self, round_idx, client_num_in_total, client_num_per_round):
         if client_num_in_total == client_num_per_round:
             client_indexes = [client_index for client_index in range(client_num_in_total)]
@@ -110,6 +151,7 @@ class FedOnlineAggregator(object):
             train_tot_corrects = []
             train_losses = []
             for client_idx in range(self.args.client_num_in_total):
+            #for client_idx in range(5):
                 # train data
                 metrics = self.trainer.test(self.train_data_local_dict[client_idx], self.device, self.args)
                 train_tot_correct, train_num_sample, train_loss = metrics['test_correct'], metrics['test_total'], metrics['test_loss']
@@ -123,7 +165,7 @@ class FedOnlineAggregator(object):
                 """
                 if self.args.ci == 1:
                     break
-
+            
             # test on training dataset
             train_acc = sum(train_tot_corrects) / sum(train_num_samples)
             train_loss = sum(train_losses) / sum(train_num_samples)
@@ -141,7 +183,9 @@ class FedOnlineAggregator(object):
                 metrics = self.trainer.test(self.test_global, self.device, self.args)
             else:
                 metrics = self.trainer.test(self.val_global, self.device, self.args)
-                
+            
+            metrics = self.trainer.test(self.train_data_local_dict[0], self.device, self.args)
+
             test_tot_correct, test_num_sample, test_loss = metrics['test_correct'], metrics['test_total'], metrics[
                 'test_loss']
             test_tot_corrects.append(copy.deepcopy(test_tot_correct))

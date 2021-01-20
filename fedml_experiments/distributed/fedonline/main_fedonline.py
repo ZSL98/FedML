@@ -18,6 +18,10 @@ os.chdir(sys.path[0])
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 
 from fedml_api.data_preprocessing.extra_sensory.data_loader import load_partition_data_extra_sensory
+from fedml_api.data_preprocessing.FederatedEMNIST.data_loader import load_partition_data_federated_emnist
+from fedml_api.data_preprocessing.fed_cifar100.data_loader import load_partition_data_federated_cifar100
+from fedml_api.data_preprocessing.fed_shakespeare.data_loader import load_partition_data_federated_shakespeare
+from fedml_api.data_preprocessing.MNIST.data_loader import load_partition_data_mnist
 
 from fedml_api.model.cv.cnn import CNN_DropOut
 from fedml_api.model.cv.resnet_gn import resnet18
@@ -39,10 +43,10 @@ def add_args(parser):
     parser.add_argument('--model', type=str, default='lr', metavar='N',
                         help='neural network used in training')
 
-    parser.add_argument('--dataset', type=str, default='ExtraSensory', metavar='N',
+    parser.add_argument('--dataset', type=str, default='mnist', metavar='N',
                         help='dataset used for training')
 
-    parser.add_argument('--data_dir', type=str, default='./../../../data/mnist',
+    parser.add_argument('--data_dir', type=str, default='./../../../data/MNIST',
                         help='data directory')
 
     parser.add_argument('--partition_method', type=str, default='hetero', metavar='N',
@@ -54,7 +58,7 @@ def add_args(parser):
     parser.add_argument('--client_num_in_total', type=int, default=60, metavar='NN',
                         help='number of workers in a distributed cluster')
 
-    parser.add_argument('--client_num_per_round', type=int, default=10, metavar='NN',
+    parser.add_argument('--client_num_per_round', type=int, default=5, metavar='NN',
                         help='number of workers')
 
     parser.add_argument('--batch_size', type=int, default=4, metavar='N',
@@ -97,6 +101,34 @@ def load_data(args, dataset_name):
         logging.info("load_data. dataset_name = %s" % dataset_name)
         client_num, test_data_global, train_data_local_dict, test_data_local_dict, \
         class_num = load_partition_data_extra_sensory()
+        args.client_num_in_total = client_num
+
+    elif dataset_name == "mnist":
+        logging.info("load_data. dataset_name = %s" % dataset_name)
+        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
+        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
+        class_num = load_partition_data_mnist(args.batch_size)
+        args.client_num_in_total = client_num
+
+    elif dataset_name == "femnist":
+        logging.info("load_data. dataset_name = %s" % dataset_name)
+        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
+        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
+        class_num = load_partition_data_federated_emnist(args.dataset, args.data_dir)
+        args.client_num_in_total = client_num
+
+    elif dataset_name == "fed_shakespeare":
+        logging.info("load_data. dataset_name = %s" % dataset_name)
+        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
+        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
+        class_num = load_partition_data_federated_shakespeare(args.dataset, args.data_dir)
+        args.client_num_in_total = client_num
+
+    elif dataset_name == "fed_cifar100":
+        logging.info("load_data. dataset_name = %s" % dataset_name)
+        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
+        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
+        class_num = load_partition_data_federated_cifar100(args.dataset, args.data_dir)
         args.client_num_in_total = client_num
 
     dataset = [test_data_global, train_data_local_dict, test_data_local_dict, class_num]
@@ -192,7 +224,7 @@ if __name__ == "__main__":
             # project="federated_nas",
             project="fedml",
             name="Fed-b" + str(args.batch_size) + "-r" + str(args.comm_round) + "-e" + str(
-                args.epochs) + "-lr" + str(args.lr) + "-c" + str(args.client_num_per_round),
+                args.epochs) + "-lr" + str(args.lr) + "-c" + str(args.client_num_per_round) + "-d" + args.dataset,
             config=args
         )
 

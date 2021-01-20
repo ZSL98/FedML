@@ -31,8 +31,8 @@ class RNN_OriginalFedAvg(nn.Module):
         final_hidden_state = lstm_out[:, -1]
         output = self.fc(final_hidden_state)
         # For fed_shakespeare
-        # output = self.fc(lstm_out[:,:])
-        # output = torch.transpose(output, 1, 2)
+        output = self.fc(lstm_out[:,:])
+        output = torch.transpose(output, 1, 2)
         return output
 
 
