@@ -29,8 +29,9 @@ class FedOnlineServerManager(ServerManager):
 
     def send_init_msg(self):
         # sampling clients
-        client_indexes = self.aggregator.fixed_client_sampling(self.round_idx, self.args.client_num_in_total,
+        client_indexes = self.aggregator.client_sampling(self.round_idx, self.args.client_num_in_total,
                                                          self.args.client_num_per_round)
+        self.aggregator.client_stats(client_indexes)
         global_model_params = self.aggregator.get_global_model_params()
         for process_id in range(1, self.size):
             self.send_message_init_config(process_id, global_model_params, client_indexes[process_id - 1])
@@ -46,7 +47,7 @@ class FedOnlineServerManager(ServerManager):
 
         self.aggregator.add_local_trained_result(sender_id - 1, model_params, local_sample_number)
         b_all_received = self.aggregator.check_whether_all_receive()
-        logging.info("b_all_received = " + str(b_all_received))
+        #logging.info("b_all_received = " + str(b_all_received))
         if b_all_received:
             global_model_params = self.aggregator.aggregate()
             self.aggregator.test_on_server_for_all_clients(self.round_idx)
@@ -63,8 +64,9 @@ class FedOnlineServerManager(ServerManager):
                 print('indexes of clients: ' + str(client_indexes))
             else:
                 # # sampling clients
-                client_indexes = self.aggregator.fixed_client_sampling(self.round_idx, self.args.client_num_in_total,
+                client_indexes = self.aggregator.client_sampling(self.round_idx, self.args.client_num_in_total,
                                                                  self.args.client_num_per_round)
+                self.aggregator.client_stats(client_indexes)
 
             print("size = %d" % self.size)
             if self.args.is_mobile == 1:

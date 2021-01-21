@@ -6,6 +6,7 @@ import time
 import numpy as np
 import torch
 import wandb
+import termplotlib as tpl
 
 from .utils import transform_list_to_tensor
 from sklearn.decomposition import PCA
@@ -14,7 +15,7 @@ from fedml_api.data_preprocessing.MNIST.data_loader import read_data
 
 class FedOnlineAggregator(object):
 
-    def __init__(self, test_global, train_data_local_dict, test_data_local_dict, worker_num, device,
+    def __init__(self, test_global, train_data_local_dict, test_data_local_dict, class_num, worker_num, device,
                  args, model_trainer):
         self.trainer = model_trainer
         self.test_global = test_global
@@ -22,7 +23,9 @@ class FedOnlineAggregator(object):
         self.val_global = self._generate_validation_set()
         self.train_data_local_dict = train_data_local_dict
         self.test_data_local_dict = test_data_local_dict
+        #self.score_list = self.mnist_score(2)
 
+        self.class_num = class_num
         self.worker_num = worker_num
         self.device = device
         self.model_dict = dict()
@@ -30,6 +33,36 @@ class FedOnlineAggregator(object):
         self.flag_client_model_uploaded_dict = dict()
         for idx in range(self.worker_num):
             self.flag_client_model_uploaded_dict[idx] = False
+
+    def client_stats(self, client_idx):
+        #train_x = dict()
+        train_y = dict()
+        train_y_ratio = dict()
+        train_local_dict = self.train_data_local_dict
+        for client in client_idx:
+            #train_x[client] = np.vstack(train_local_dict[client][batch][0].numpy() for batch in range(len(train_local_dict[client])))
+            #train_y[client] = np.hstack(train_local_dict[client][batch][1].numpy() for batch in range(len(train_local_dict[client])))
+            train_y[client] = np.array([])
+            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
+                train_y[client] = np.hstack((train_y[client], labels))
+            #train_y[client] = np.hstack(labels for batch_idx, (x, labels) in enumerate(train_local_dict[client]))
+            train_y_ratio[client], bin_edges = np.histogram(train_y[client], bins=self.class_num, range=(-0.5, self.class_num-0.5))
+            train_y_ratio[client] = train_y_ratio[client]/len(train_y[client])
+        
+        print('\n')
+        #train_selected_x = np.vstack(train_x[client] for client in client_idx)
+        #train_selected_y = np.hstack(train_y[client] for client in client_idx)
+        #train_selected_y_ratio = np.hstack(train_y_ratio[client] for client in client_idx)
+
+        train_selected_y_ratio = np.zeros(self.class_num)
+        for client in client_idx:
+            train_selected_y_ratio += train_y_ratio[client]
+
+        #counts, bin_edges = np.histogram(train_selected_y, bins=10, range=(-0.5, 9.5))
+        fig = tpl.figure()
+        fig.hist(train_selected_y_ratio, bin_edges, force_ascii=True)
+        fig.show()
+        return train_selected_y_ratio
 
     def get_global_model_params(self):
         return self.trainer.get_model_params()
@@ -82,6 +115,34 @@ class FedOnlineAggregator(object):
         logging.info("aggregate time cost: %d" % (end_time - start_time))
         return averaged_params
 
+    def client_score(self, quanti=5, reduced_dimension=2):
+        # TODO:
+        users, groups, train_data, test_data = read_data(train_path, test_path)
+
+        pca = PCA(n_components=reduced_dimension)
+        # TODO:
+        all_data = np.zeros(784)
+        for user in users:
+            Data = train_data[user]['x']
+            all_data = np.vstack((all_data, Data))
+        pca_method = pca.fit(all_data)
+        all_data = pca_method.transform(all_data)
+
+        region = np.zeros((quanti, quanti))
+        step = list()
+        for i in range(reduced_dimension):
+            step.append((np.max(all_data[:,i])-np.min(all_data[:,i]))/quanti)
+
+        location = np.zeros(reduced_dimension)
+        for data_idx in range(len(all_data)):
+            for i in range(reduced_dimension):
+                location[i] = (all_data[data_idx,i] - np.min(all_data[:,i]))//step[i]
+                print(location)
+                if location[i] == 5:
+                    location[i] = 4
+            region[int(location[0]), int(location[1])] += 1
+        
+
     def mnist_score(self, reduced_dimension):
         train_path="./../../../data/MNIST/train"
         test_path="./../../../data/MNIST/test"
@@ -93,19 +154,25 @@ class FedOnlineAggregator(object):
             Data = train_data[user]['x']
             all_data = np.vstack((all_data, Data))
         pca_method = pca.fit(all_data)
+        all_data = pca_method.transform(all_data)
 
         nbrs = NearestNeighbors(n_neighbors=100, algorithm='kd_tree').fit(all_data)
         score = dict()
         client_idx = 0
         for user in users:
             user_x = pca_method.transform(train_data[user]['x'])
-            user_y = train_data[user]['y']
-            user_Data = np.hstack((user_x, np.expand_dims(user_y, axis = 1)))
-            distances, indices = nbrs.kneighbors(user_Data)
+            #user_y = train_data[user]['y']
+            #user_Data = np.hstack((user_x, np.expand_dims(user_y, axis = 1)))
+            distances, indices = nbrs.kneighbors(user_x)
             score[client_idx] = np.mean(distances)
             client_idx += 1
         score = sorted(score.items(), key = lambda kv:(kv[1], kv[0]))
-        return score
+        score_list = list()
+        for idx, dis in score:
+            score_list.append(idx)
+        score_list.reverse()
+        print(len(score_list))
+        return score_list
 
     def fixed_client_sampling(self, round_idx, client_num_in_total, client_num_per_round):
         client_indexes = []
@@ -114,9 +181,11 @@ class FedOnlineAggregator(object):
         else:
             num_clients = min(client_num_per_round, client_num_in_total)
             np.random.seed(500)
-            s = self.mnist_score(2)
+            s = self.score_list
             for i in range(num_clients):
-                client_indexes.append(s[-i][0])
+                client_indexes.append(s[i])
+                print(self.score_list.pop(0))
+            #client_indexes = [411,34,989,529,49]
             client_indexes = np.array(client_indexes)
         logging.info("client_indexes = %s" % str(client_indexes))
         return client_indexes
@@ -184,7 +253,7 @@ class FedOnlineAggregator(object):
             else:
                 metrics = self.trainer.test(self.val_global, self.device, self.args)
             
-            metrics = self.trainer.test(self.train_data_local_dict[0], self.device, self.args)
+            #metrics = self.trainer.test(self.train_data_local_dict[0], self.device, self.args)
 
             test_tot_correct, test_num_sample, test_loss = metrics['test_correct'], metrics['test_total'], metrics[
                 'test_loss']
