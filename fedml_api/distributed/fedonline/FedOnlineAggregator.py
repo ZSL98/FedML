@@ -15,15 +15,16 @@ from fedml_api.data_preprocessing.MNIST.data_loader import read_data
 
 class FedOnlineAggregator(object):
 
-    def __init__(self, test_global, train_data_local_dict, test_data_local_dict, class_num, worker_num, device,
+    def __init__(self, train_global, test_global, train_data_local_dict, test_data_local_dict, class_num, worker_num, device,
                  args, model_trainer):
         self.trainer = model_trainer
+        self.train_global = train_global
         self.test_global = test_global
         self.args = args
         self.val_global = self._generate_validation_set()
         self.train_data_local_dict = train_data_local_dict
         self.test_data_local_dict = test_data_local_dict
-        #self.score_list = self.mnist_score(2)
+        self.score_list = self.client_score()
 
         self.class_num = class_num
         self.worker_num = worker_num
@@ -34,35 +35,11 @@ class FedOnlineAggregator(object):
         for idx in range(self.worker_num):
             self.flag_client_model_uploaded_dict[idx] = False
 
-    def client_stats(self, client_idx):
-        #train_x = dict()
-        train_y = dict()
-        train_y_ratio = dict()
-        train_local_dict = self.train_data_local_dict
-        for client in client_idx:
-            #train_x[client] = np.vstack(train_local_dict[client][batch][0].numpy() for batch in range(len(train_local_dict[client])))
-            #train_y[client] = np.hstack(train_local_dict[client][batch][1].numpy() for batch in range(len(train_local_dict[client])))
-            train_y[client] = np.array([])
-            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
-                train_y[client] = np.hstack((train_y[client], labels))
-            #train_y[client] = np.hstack(labels for batch_idx, (x, labels) in enumerate(train_local_dict[client]))
-            train_y_ratio[client], bin_edges = np.histogram(train_y[client], bins=self.class_num, range=(-0.5, self.class_num-0.5))
-            train_y_ratio[client] = train_y_ratio[client]/len(train_y[client])
-        
-        print('\n')
-        #train_selected_x = np.vstack(train_x[client] for client in client_idx)
-        #train_selected_y = np.hstack(train_y[client] for client in client_idx)
-        #train_selected_y_ratio = np.hstack(train_y_ratio[client] for client in client_idx)
-
-        train_selected_y_ratio = np.zeros(self.class_num)
-        for client in client_idx:
-            train_selected_y_ratio += train_y_ratio[client]
-
+    def plot_stats(self, data_ratio):
         #counts, bin_edges = np.histogram(train_selected_y, bins=10, range=(-0.5, 9.5))
         fig = tpl.figure()
-        fig.hist(train_selected_y_ratio, bin_edges, force_ascii=True)
+        fig.hist(data_ratio, bin_edges, force_ascii=True)
         fig.show()
-        return train_selected_y_ratio
 
     def get_global_model_params(self):
         return self.trainer.get_model_params()
@@ -115,32 +92,97 @@ class FedOnlineAggregator(object):
         logging.info("aggregate time cost: %d" % (end_time - start_time))
         return averaged_params
 
-    def client_score(self, quanti=5, reduced_dimension=2):
-        # TODO:
-        users, groups, train_data, test_data = read_data(train_path, test_path)
+    def client_stats(self, client_idx):
+        #train_x = dict()
+        train_y = dict()
+        train_y_ratio = dict()
+        train_local_dict = self.train_data_local_dict
+        for client in client_idx:
+            #train_x[client] = np.vstack(train_local_dict[client][batch][0].numpy() for batch in range(len(train_local_dict[client])))
+            #train_y[client] = np.hstack(train_local_dict[client][batch][1].numpy() for batch in range(len(train_local_dict[client])))
+            train_y[client] = np.array([])
+            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
+                train_y[client] = np.hstack((train_y[client], labels))
+            #train_y[client] = np.hstack(labels for batch_idx, (x, labels) in enumerate(train_local_dict[client]))
+            train_y_ratio[client], bin_edges = np.histogram(train_y[client], bins=self.class_num, range=(-0.5, self.class_num-0.5))
+            train_y_ratio[client] = train_y_ratio[client]/len(train_y[client])
+        
+        print('\n')
+        #train_selected_x = np.vstack(train_x[client] for client in client_idx)
+        #train_selected_y = np.hstack(train_y[client] for client in client_idx)
+        #train_selected_y_ratio = np.hstack(train_y_ratio[client] for client in client_idx)
 
+        train_selected_y_ratio = np.zeros(self.class_num)
+        for client in client_idx:
+            train_selected_y_ratio += train_y_ratio[client]
+        self.plot_stats(train_selected_y_ratio)
+
+    def client_score(self):
+        train_local_dict = self.train_data_local_dict
+        client_location = dict()
+        client_prob = dict()
+        pca_method, step, global_score_matrix, quanti, reduced_dimension = self.global_score()
+        global_prob_matrix = np.reciprocal(global_score_matrix)
+        global_prob_matrix = global_prob_matrix/np.sum(global_prob_matrix[global_prob_matrix != np.inf])*0.1
+        for client in range(len(train_local_dict)):
+            if client%500 == 0:
+                print("client %d" %(client) )
+            train_x = np.ones((1, 784))
+            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
+                tmp = x.reshape([x.shape[0], 784])
+                train_x = np.vstack((train_x, tmp))
+            
+            train_x = pca_method.transform(train_x)
+            train_x_mean = np.mean(train_x, axis=0)
+            location = np.zeros(reduced_dimension)
+            for i in range(reduced_dimension):
+                location[i] = (train_x_mean[i] - np.min(train_x[:,i]))//step[i]
+                if location[i] == quanti:
+                    location[i] = quanti - 1
+            client_location[client] = location
+            client_prob[client] = global_prob_matrix[tuple(location.astype(np.int16))]
+        return client_prob
+
+
+    def global_score(self, quanti=5, reduced_dimension=2):
+        train_local_dict = self.train_data_local_dict
+        
+        print('stage 0 finished')
+        train_x = np.ones((1, 784))
+        for client in range(len(train_local_dict)):
+            last_data_in_use = train_x.shape[0]
+            data_per_client = 0
+            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
+                while data_per_client <= 100:
+                    tmp = x.reshape([x.shape[0], 784])
+                    train_x = np.vstack((train_x, tmp))
+                    data_per_client = train_x.shape[0] - last_data_in_use
+        
+        #train_x = np.load('../../../fedml_experiments/distributed/fedonline/20_5_2.npy')
+        print('stage 1 finished')
         pca = PCA(n_components=reduced_dimension)
-        # TODO:
-        all_data = np.zeros(784)
-        for user in users:
-            Data = train_data[user]['x']
-            all_data = np.vstack((all_data, Data))
-        pca_method = pca.fit(all_data)
-        all_data = pca_method.transform(all_data)
-
+        pca_method = pca.fit(train_x)
+        train_x = pca_method.transform(train_x)
         region = np.zeros((quanti, quanti))
         step = list()
         for i in range(reduced_dimension):
-            step.append((np.max(all_data[:,i])-np.min(all_data[:,i]))/quanti)
+            step.append((np.max(train_x[:,i])-np.min(train_x[:,i]))/quanti)
 
-        location = np.zeros(reduced_dimension)
-        for data_idx in range(len(all_data)):
+        for client in range(len(train_local_dict)):
+            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
+                if batch_idx == 0:
+                    client_data_x = x.reshape([x.shape[0], 784])
+            client_data_x = pca_method.transform(client_data_x)
+            client_data_x_mean = np.mean(client_data_x, axis=0)
+
+            location = np.zeros(reduced_dimension)
             for i in range(reduced_dimension):
-                location[i] = (all_data[data_idx,i] - np.min(all_data[:,i]))//step[i]
-                print(location)
-                if location[i] == 5:
-                    location[i] = 4
+                location[i] = (client_data_x_mean[i] - np.min(train_x[:,i]))//step[i]
+                if location[i] == quanti:
+                    location[i] = quanti - 1
             region[int(location[0]), int(location[1])] += 1
+        print('stage 2 finished')
+        return pca_method, step, region, quanti, reduced_dimension
         
 
     def mnist_score(self, reduced_dimension):

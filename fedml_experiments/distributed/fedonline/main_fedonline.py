@@ -99,6 +99,7 @@ def add_args(parser):
 def load_data(args, dataset_name):  
     if dataset_name == "ExtraSensory":
         logging.info("load_data. dataset_name = %s" % dataset_name)
+        # TODO:
         client_num, test_data_global, train_data_local_dict, test_data_local_dict, \
         class_num = load_partition_data_extra_sensory()
         args.client_num_in_total = client_num
@@ -131,7 +132,7 @@ def load_data(args, dataset_name):
         class_num = load_partition_data_federated_cifar100(args.dataset, args.data_dir)
         args.client_num_in_total = client_num
 
-    dataset = [test_data_global, train_data_local_dict, test_data_local_dict, class_num]
+    dataset = [train_data_global, test_data_global, train_data_local_dict, test_data_local_dict, class_num]
     return dataset
 
 
@@ -250,16 +251,16 @@ if __name__ == "__main__":
 
     # load data
     dataset = load_data(args, args.dataset)
-    [test_data_global, train_data_local_dict, test_data_local_dict, class_num] = dataset
+    [train_data_global, test_data_global, train_data_local_dict, test_data_local_dict, class_num] = dataset
     # create model.
     # Note if the model is DNN (e.g., ResNet), the training will be very slow.
     # In this case, please use our FedML distributed version (./fedml_experiments/distributed_fedavg)
-    model = create_model(args, model_name=args.model, output_dim=dataset[3])
+    model = create_model(args, model_name=args.model, output_dim=dataset[4])
 
     try:
         # start "federated averaging (FedAvg)"
         FedML_FedOnline_distributed(process_id, worker_number, device, comm,
-                                 model, test_data_global, train_data_local_dict, test_data_local_dict, class_num, args)
+                                 model, train_data_global, test_data_global, train_data_local_dict, test_data_local_dict, class_num, args)
     except Exception as e:
         print(e)
         logging.info('traceback.format_exc():\n%s' % traceback.format_exc())
