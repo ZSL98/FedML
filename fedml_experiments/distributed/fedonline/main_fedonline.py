@@ -40,6 +40,8 @@ def add_args(parser):
     return a parser added with args required by fit
     """
     # Training settings
+    parser.add_argument('--load_data', type=bool, default=True)
+
     parser.add_argument('--model', type=str, default='cnn', metavar='N',
                         help='neural network used in training')
 
@@ -75,7 +77,7 @@ def add_args(parser):
     parser.add_argument('--epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained locally')
 
-    parser.add_argument('--comm_round', type=int, default=20,
+    parser.add_argument('--comm_round', type=int, default=50,
                         help='how many round of communications we shoud use')
 
     parser.add_argument('--is_mobile', type=int, default=0,

@@ -3,6 +3,9 @@ import logging
 import random
 import time
 
+import seaborn as sns
+import matplotlib.pyplot as plt
+
 import numpy as np
 import torch
 import wandb
@@ -35,7 +38,7 @@ class FedOnlineAggregator(object):
         for idx in range(self.worker_num):
             self.flag_client_model_uploaded_dict[idx] = False
 
-    def plot_stats(self, data_ratio):
+    def plot_stats(self, data_ratio, bin_edges):
         #counts, bin_edges = np.histogram(train_selected_y, bins=10, range=(-0.5, 9.5))
         fig = tpl.figure()
         fig.hist(data_ratio, bin_edges, force_ascii=True)
@@ -115,74 +118,83 @@ class FedOnlineAggregator(object):
         train_selected_y_ratio = np.zeros(self.class_num)
         for client in client_idx:
             train_selected_y_ratio += train_y_ratio[client]
-        self.plot_stats(train_selected_y_ratio)
+        self.plot_stats(train_selected_y_ratio, bin_edges)
 
     def client_score(self):
         train_local_dict = self.train_data_local_dict
         client_location = dict()
         client_prob = dict()
-        pca_method, step, global_score_matrix, quanti, reduced_dimension = self.global_score()
+        pca_method, step, global_score_matrix, train_x_mean,\
+             min_bound, quanti, reduced_dimension = self.global_score()
+        matrix_not_nan_count = len(global_score_matrix[global_score_matrix != 0])
         global_prob_matrix = np.reciprocal(global_score_matrix)
-        global_prob_matrix = global_prob_matrix/np.sum(global_prob_matrix[global_prob_matrix != np.inf])*0.1
+        # global_prob_matrix = global_prob_matrix/np.sum(global_prob_matrix[global_prob_matrix != np.inf])*0.1
+        global_prob_matrix = global_prob_matrix * 10 / matrix_not_nan_count
+        
         for client in range(len(train_local_dict)):
             if client%500 == 0:
-                print("client %d" %(client) )
-            train_x = np.ones((1, 784))
-            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
-                tmp = x.reshape([x.shape[0], 784])
-                train_x = np.vstack((train_x, tmp))
-            
-            train_x = pca_method.transform(train_x)
-            train_x_mean = np.mean(train_x, axis=0)
+                print("calculating client score %d" %(client) )
             location = np.zeros(reduced_dimension)
             for i in range(reduced_dimension):
-                location[i] = (train_x_mean[i] - np.min(train_x[:,i]))//step[i]
+                location[i] = (train_x_mean[client][i] - min_bound[i])//step[i]
                 if location[i] == quanti:
                     location[i] = quanti - 1
             client_location[client] = location
             client_prob[client] = global_prob_matrix[tuple(location.astype(np.int16))]
+            expected_client_count = sum(client_prob.values())
         return client_prob
 
 
-    def global_score(self, quanti=5, reduced_dimension=2):
+    def global_score(self, quanti=50, reduced_dimension=2, sample_per_client=10):
         train_local_dict = self.train_data_local_dict
-        
-        print('stage 0 finished')
-        train_x = np.ones((1, 784))
-        for client in range(len(train_local_dict)):
-            last_data_in_use = train_x.shape[0]
-            data_per_client = 0
-            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
-                while data_per_client <= 100:
+
+        if self.args.load_data == True:
+            train_x = dict()
+            all_train_x = np.ones((1, 784))
+            for client in range(len(train_local_dict)):
+                if client%200 == 0:
+                    print("collecting clients data %d" %(client) )
+                train_x[client] = np.ones((1, 784))
+                data_per_client = 0
+                for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
                     tmp = x.reshape([x.shape[0], 784])
-                    train_x = np.vstack((train_x, tmp))
-                    data_per_client = train_x.shape[0] - last_data_in_use
-        
-        #train_x = np.load('../../../fedml_experiments/distributed/fedonline/20_5_2.npy')
-        print('stage 1 finished')
+                    train_x[client] = np.vstack((train_x[client], tmp))
+                    if train_x[client].shape[0] > sample_per_client:
+                        break
+                train_x[client] = np.delete(train_x[client], 0, axis=0)
+                all_train_x = np.vstack((all_train_x, train_x[client]))
+            all_train_x = np.delete(all_train_x, 0, axis=0)
+            # np.save(train_x, '../../../fedml_experiments/distributed/fedonline/train_x.npy')
+            # np.save(all_train_x, '../../../fedml_experiments/distributed/fedonline/all_train_x.npy')
+        else:
+            train_x = np.load('../../../fedml_experiments/distributed/fedonline/train_x.npy')
+            all_train_x = np.load('../../../fedml_experiments/distributed/fedonline/all_train_x.npy')
+
         pca = PCA(n_components=reduced_dimension)
-        pca_method = pca.fit(train_x)
-        train_x = pca_method.transform(train_x)
+        pca_method = pca.fit(all_train_x)
+        all_train_x = pca_method.transform(all_train_x)
         region = np.zeros((quanti, quanti))
         step = list()
+        max_bound = dict()
+        min_bound = dict()
         for i in range(reduced_dimension):
-            step.append((np.max(train_x[:,i])-np.min(train_x[:,i]))/quanti)
+            max_bound[i] = np.max(all_train_x[:,i])
+            min_bound[i] = np.min(all_train_x[:,i])
+            step.append((max_bound[i]-min_bound[i])/quanti)
 
+        train_x_mean = dict()
         for client in range(len(train_local_dict)):
-            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
-                if batch_idx == 0:
-                    client_data_x = x.reshape([x.shape[0], 784])
-            client_data_x = pca_method.transform(client_data_x)
-            client_data_x_mean = np.mean(client_data_x, axis=0)
+            train_x[client] = pca_method.transform(train_x[client])
+            train_x_mean[client] = np.mean(train_x[client], axis=0)
 
             location = np.zeros(reduced_dimension)
             for i in range(reduced_dimension):
-                location[i] = (client_data_x_mean[i] - np.min(train_x[:,i]))//step[i]
+                location[i] = (train_x_mean[client][i] - min_bound[i])//step[i]
                 if location[i] == quanti:
                     location[i] = quanti - 1
             region[int(location[0]), int(location[1])] += 1
         print('stage 2 finished')
-        return pca_method, step, region, quanti, reduced_dimension
+        return pca_method, step, region, train_x_mean, min_bound, quanti, reduced_dimension
         
 
     def mnist_score(self, reduced_dimension):
@@ -224,9 +236,20 @@ class FedOnlineAggregator(object):
             num_clients = min(client_num_per_round, client_num_in_total)
             np.random.seed(500)
             s = self.score_list
-            for i in range(num_clients):
-                client_indexes.append(s[i])
-                print(self.score_list.pop(0))
+            for client in range(client_num_in_total):
+                if np.random.binomial(n=1, p=s[client]):
+                    client_indexes.append(client)
+            if len(client_indexes) > 10:
+                for i in range(len(client_indexes)-10):
+                    client_indexes.remove(random.choice(client_indexes))
+            elif len(client_indexes) < 10:
+                tmp_client_list = np.array(range(client_num_in_total))
+                for i in range(10-len(client_indexes)):
+                    add_client_index = np.random.choice(tmp_client_list)
+                    while add_client_index in client_indexes:
+                        add_client_index = np.random.choice(tmp_client_list)
+                    tmp_client_list.delete(add_client_index)
+                    client_indexes.append(add_client_index)
             #client_indexes = [411,34,989,529,49]
             client_indexes = np.array(client_indexes)
         logging.info("client_indexes = %s" % str(client_indexes))
