@@ -40,7 +40,8 @@ def add_args(parser):
     return a parser added with args required by fit
     """
     # Training settings
-    parser.add_argument('--load_data', type=bool, default=True)
+    parser.add_argument('--load_data', type=bool, default=False)
+    parser.add_argument('--quanti', type=int, default=50)
 
     parser.add_argument('--model', type=str, default='cnn', metavar='N',
                         help='neural network used in training')
@@ -57,13 +58,13 @@ def add_args(parser):
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
                         help='partition alpha (default: 0.5)')
 
-    parser.add_argument('--client_num_in_total', type=int, default=1000, metavar='NN',
+    parser.add_argument('--client_num_in_total', type=int, default=3400, metavar='NN',
                         help='number of workers in a distributed cluster')
 
-    parser.add_argument('--client_num_per_round', type=int, default=10, metavar='NN',
+    parser.add_argument('--client_num_per_round', type=int, default=100, metavar='NN',
                         help='number of workers')
 
-    parser.add_argument('--batch_size', type=int, default=4, metavar='N',
+    parser.add_argument('--batch_size', type=int, default=20, metavar='N',
                         help='input batch size for training (default: 64)')
 
     parser.add_argument('--client_optimizer', type=str, default='adam',
@@ -254,6 +255,7 @@ if __name__ == "__main__":
     # load data
     dataset = load_data(args, args.dataset)
     [train_data_global, test_data_global, train_data_local_dict, test_data_local_dict, class_num] = dataset
+
     # create model.
     # Note if the model is DNN (e.g., ResNet), the training will be very slow.
     # In this case, please use our FedML distributed version (./fedml_experiments/distributed_fedavg)
