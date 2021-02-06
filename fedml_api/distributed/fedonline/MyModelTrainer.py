@@ -2,6 +2,7 @@ import logging
 
 import torch
 from torch import nn
+import torch.utils.data as data
 
 try:
     from fedml_core.trainer.model_trainer import ModelTrainer

@@ -29,6 +29,7 @@ class FedOnlineAggregator(object):
         self.test_data_local_dict = test_data_local_dict
         self.score_list = self.client_score()
 
+        self.client_all_matrix = np.zeros((self.args.quanti, self.args.quanti))
         self.class_num = class_num
         self.worker_num = worker_num
         self.device = device
@@ -125,11 +126,11 @@ class FedOnlineAggregator(object):
         client_location = dict()
         client_prob = dict()
         pca_method, step, global_score_matrix, train_x_mean,\
-             min_bound, quanti, reduced_dimension = self.global_score()
+             min_bound, reduced_dimension, location = self.global_score()
         matrix_not_nan_count = len(global_score_matrix[global_score_matrix != 0])
         global_prob_matrix = np.reciprocal(global_score_matrix)
         # global_prob_matrix = global_prob_matrix/np.sum(global_prob_matrix[global_prob_matrix != np.inf])*0.1
-        global_prob_matrix = global_prob_matrix * 10 / matrix_not_nan_count
+        global_prob_matrix = global_prob_matrix * self.args.client_num_per_round / matrix_not_nan_count
         
         for client in range(len(train_local_dict)):
             if client%500 == 0:
@@ -137,96 +138,94 @@ class FedOnlineAggregator(object):
             location = np.zeros(reduced_dimension)
             for i in range(reduced_dimension):
                 location[i] = (train_x_mean[client][i] - min_bound[i])//step[i]
-                if location[i] == quanti:
-                    location[i] = quanti - 1
+                if location[i] == self.args.quanti:
+                    location[i] = self.args.quanti - 1
             client_location[client] = location
-            client_prob[client] = global_prob_matrix[tuple(location.astype(np.int16))]
+            if global_score_matrix[tuple(location.astype(np.int16))] >= 2:
+                client_prob[client] = global_prob_matrix[tuple(location.astype(np.int16))]
+            else:
+                client_prob[client] = 100/3400
             expected_client_count = sum(client_prob.values())
         return client_prob
 
 
-    def global_score(self, quanti=50, reduced_dimension=2, sample_per_client=10):
+    def global_score(self, reduced_dimension=2, sample_per_client=10):
         train_local_dict = self.train_data_local_dict
 
         if self.args.load_data == True:
             train_x = dict()
+            train_y = dict()
             all_train_x = np.ones((1, 784))
             for client in range(len(train_local_dict)):
                 if client%200 == 0:
                     print("collecting clients data %d" %(client) )
                 train_x[client] = np.ones((1, 784))
+                train_y[client] = np.ones(1)
                 data_per_client = 0
                 for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
+                    train_y[client] = np.hstack((train_y[client], labels))
                     tmp = x.reshape([x.shape[0], 784])
                     train_x[client] = np.vstack((train_x[client], tmp))
+                    """
                     if train_x[client].shape[0] > sample_per_client:
                         break
+                    """
                 train_x[client] = np.delete(train_x[client], 0, axis=0)
+                train_y[client] = np.delete(train_y[client], 0, axis=0)
                 all_train_x = np.vstack((all_train_x, train_x[client]))
             all_train_x = np.delete(all_train_x, 0, axis=0)
-            # np.save(train_x, '../../../fedml_experiments/distributed/fedonline/train_x.npy')
-            # np.save(all_train_x, '../../../fedml_experiments/distributed/fedonline/all_train_x.npy')
+            np.save('../../../fedml_experiments/distributed/fedonline/train_x_all.npy', train_x)
+            np.save('../../../fedml_experiments/distributed/fedonline/train_y_all.npy', train_y)
+            np.save('../../../fedml_experiments/distributed/fedonline/all_train_x_all.npy', all_train_x)
         else:
-            train_x = np.load('../../../fedml_experiments/distributed/fedonline/train_x.npy')
-            all_train_x = np.load('../../../fedml_experiments/distributed/fedonline/all_train_x.npy')
+            train_x = np.load('../../../fedml_experiments/distributed/fedonline/train_x_all.npy', allow_pickle=True).item()
+            train_y = np.load('../../../fedml_experiments/distributed/fedonline/train_y_all.npy', allow_pickle=True).item()
+            all_train_x = np.load('../../../fedml_experiments/distributed/fedonline/all_train_x_all.npy')
 
         pca = PCA(n_components=reduced_dimension)
         pca_method = pca.fit(all_train_x)
         all_train_x = pca_method.transform(all_train_x)
-        region = np.zeros((quanti, quanti))
+        region = np.zeros((self.args.quanti, self.args.quanti))
         step = list()
         max_bound = dict()
         min_bound = dict()
-        for i in range(reduced_dimension):
-            max_bound[i] = np.max(all_train_x[:,i])
-            min_bound[i] = np.min(all_train_x[:,i])
-            step.append((max_bound[i]-min_bound[i])/quanti)
-
         train_x_mean = dict()
         for client in range(len(train_local_dict)):
             train_x[client] = pca_method.transform(train_x[client])
-            train_x_mean[client] = np.mean(train_x[client], axis=0)
+            train_x_mean[client] = list(np.mean(train_x[client], axis=0))
 
-            location = np.zeros(reduced_dimension)
+        for i in range(reduced_dimension):
+            max_bound[i] = np.max(list(train_x_mean.values()), axis=0)[i]
+            min_bound[i] = np.min(list(train_x_mean.values()), axis=0)[i]
+            step.append((max_bound[i]-min_bound[i])/self.args.quanti)
+
+        location = dict()
+        for client in range(len(train_local_dict)):
+            location[client] = np.zeros(reduced_dimension)
             for i in range(reduced_dimension):
-                location[i] = (train_x_mean[client][i] - min_bound[i])//step[i]
-                if location[i] == quanti:
-                    location[i] = quanti - 1
-            region[int(location[0]), int(location[1])] += 1
-        print('stage 2 finished')
-        return pca_method, step, region, train_x_mean, min_bound, quanti, reduced_dimension
-        
+                location[client][i] = (train_x_mean[client][i] - min_bound[i])//step[i]
+                if location[client][i] == self.args.quanti:
+                    location[client][i] = self.args.quanti - 1
+            region[int(location[client][0]), int(location[client][1])] += 1
+        sns.heatmap(region)
+        plt.savefig('./global_count_1.png')
+        plt.close()
+        return pca_method, step, region, train_x_mean, min_bound, reduced_dimension, location
 
-    def mnist_score(self, reduced_dimension):
-        train_path="./../../../data/MNIST/train"
-        test_path="./../../../data/MNIST/test"
-        users, groups, train_data, test_data = read_data(train_path, test_path)
 
-        pca = PCA(n_components=reduced_dimension)
-        all_data = np.zeros(784)
-        for user in users:
-            Data = train_data[user]['x']
-            all_data = np.vstack((all_data, Data))
-        pca_method = pca.fit(all_data)
-        all_data = pca_method.transform(all_data)
-
-        nbrs = NearestNeighbors(n_neighbors=100, algorithm='kd_tree').fit(all_data)
-        score = dict()
-        client_idx = 0
-        for user in users:
-            user_x = pca_method.transform(train_data[user]['x'])
-            #user_y = train_data[user]['y']
-            #user_Data = np.hstack((user_x, np.expand_dims(user_y, axis = 1)))
-            distances, indices = nbrs.kneighbors(user_x)
-            score[client_idx] = np.mean(distances)
-            client_idx += 1
-        score = sorted(score.items(), key = lambda kv:(kv[1], kv[0]))
-        score_list = list()
-        for idx, dis in score:
-            score_list.append(idx)
-        score_list.reverse()
-        print(len(score_list))
-        return score_list
+    def draw_client_matrix(self, round_idx, client_indexes):
+        client_matrix = np.zeros((self.args.quanti, self.args.quanti)) 
+        pca_method, step, global_score_matrix, train_x_mean,\
+             min_bound, reduced_dimension, location = self.global_score()
+        for client in client_indexes:
+            client_matrix[int(location[client][0]), int(location[client][1])] += 1
+            self.client_all_matrix[int(location[client][0]), int(location[client][1])] += 1
+        sns.heatmap(client_matrix)
+        plt.savefig('./figures/'+str(round_idx)+'.png')
+        plt.close()
+        sns.heatmap(self.client_all_matrix)
+        plt.savefig('./figures_all_stages/'+str(round_idx)+'.png')
+        plt.close()
 
     def fixed_client_sampling(self, round_idx, client_num_in_total, client_num_per_round):
         client_indexes = []
@@ -234,24 +233,26 @@ class FedOnlineAggregator(object):
             client_indexes = [client_index for client_index in range(client_num_in_total)]
         else:
             num_clients = min(client_num_per_round, client_num_in_total)
-            np.random.seed(500)
+            np.random.seed(round_idx)
             s = self.score_list
             for client in range(client_num_in_total):
                 if np.random.binomial(n=1, p=s[client]):
                     client_indexes.append(client)
-            if len(client_indexes) > 10:
-                for i in range(len(client_indexes)-10):
+            if len(client_indexes) > client_num_per_round:
+                print('case1')
+                for i in range(len(client_indexes)-client_num_per_round):
                     client_indexes.remove(random.choice(client_indexes))
-            elif len(client_indexes) < 10:
+            elif len(client_indexes) < client_num_per_round:
+                print('case2')
                 tmp_client_list = np.array(range(client_num_in_total))
-                for i in range(10-len(client_indexes)):
+                for i in range(client_num_per_round-len(client_indexes)):
                     add_client_index = np.random.choice(tmp_client_list)
                     while add_client_index in client_indexes:
                         add_client_index = np.random.choice(tmp_client_list)
-                    tmp_client_list.delete(add_client_index)
+                    tmp_client_list = np.delete(tmp_client_list, np.where(tmp_client_list == add_client_index))
                     client_indexes.append(add_client_index)
-            #client_indexes = [411,34,989,529,49]
             client_indexes = np.array(client_indexes)
+        #self.draw_client_matrix(round_idx, client_indexes)
         logging.info("client_indexes = %s" % str(client_indexes))
         return client_indexes
 
@@ -262,6 +263,7 @@ class FedOnlineAggregator(object):
             num_clients = min(client_num_per_round, client_num_in_total)
             np.random.seed(round_idx)  # make sure for each comparison, we are selecting the same clients each round
             client_indexes = np.random.choice(range(client_num_in_total), num_clients, replace=False)
+        self.draw_client_matrix(round_idx, client_indexes)
         logging.info("client_indexes = %s" % str(client_indexes))
         return client_indexes
 
@@ -285,7 +287,6 @@ class FedOnlineAggregator(object):
             train_tot_corrects = []
             train_losses = []
             for client_idx in range(self.args.client_num_in_total):
-            #for client_idx in range(5):
                 # train data
                 metrics = self.trainer.test(self.train_data_local_dict[client_idx], self.device, self.args)
                 train_tot_correct, train_num_sample, train_loss = metrics['test_correct'], metrics['test_total'], metrics['test_loss']
