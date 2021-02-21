@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import wandb
 
+os.chdir(sys.path[0])
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 
 from fedml_api.data_preprocessing.cifar10.data_loader import load_partition_data_cifar10
@@ -246,6 +247,9 @@ def create_model(args, model_name, output_dim):
         model = CNN_DropOut(False)
     elif model_name == "resnet18_gn" and args.dataset == "fed_cifar100":
         logging.info("ResNet18_GN + Federated_CIFAR100")
+        model = resnet18()
+    elif args.dataset == "cifar10":
+        logging.info("Cifar10")
         model = resnet18()
     elif model_name == "rnn" and args.dataset == "shakespeare":
         logging.info("RNN + shakespeare")

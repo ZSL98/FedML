@@ -18,16 +18,15 @@ from fedml_api.data_preprocessing.MNIST.data_loader import read_data
 
 class FedOnlineAggregator(object):
 
-    def __init__(self, train_global, test_global, train_data_local_dict, test_data_local_dict, class_num, worker_num, device,
+    def __init__(self, test_global, train_data_local_dict, test_data_local_dict, class_num, worker_num, device,
                  args, model_trainer):
         self.trainer = model_trainer
-        self.train_global = train_global
+        # self.train_global = train_global
         self.test_global = test_global
         self.args = args
         self.val_global = self._generate_validation_set()
         self.train_data_local_dict = train_data_local_dict
         self.test_data_local_dict = test_data_local_dict
-        self.score_list = self.client_score()
 
         self.client_all_matrix = np.zeros((self.args.quanti, self.args.quanti))
         self.class_num = class_num
@@ -144,7 +143,7 @@ class FedOnlineAggregator(object):
             if global_score_matrix[tuple(location.astype(np.int16))] >= 2:
                 client_prob[client] = global_prob_matrix[tuple(location.astype(np.int16))]
             else:
-                client_prob[client] = 100/3400
+                client_prob[client] = self.args.client_num_per_round/len(train_local_dict)
             expected_client_count = sum(client_prob.values())
         return client_prob
 
@@ -152,6 +151,19 @@ class FedOnlineAggregator(object):
     def global_score(self, reduced_dimension=2, sample_per_client=10):
         train_local_dict = self.train_data_local_dict
 
+        train_x = dict()
+        train_y = dict()
+        for client in range(len(train_local_dict)):
+            local_data_num = train_local_dict[client].dataset.tensors[0].shape[0]
+            train_x[client] = train_local_dict[client].dataset.tensors[0].view(local_data_num, -1)
+            train_y[client] = train_local_dict[client].dataset.tensors[1]
+            if client == 0:
+                all_train_x = train_x[client]
+            else:
+                all_train_x = torch.cat((all_train_x, train_x[client]), 0)
+            #all_train_x = np.load('../../../fedml_experiments/distributed/fedonline/femnist_pca.npy')
+
+        """
         if self.args.load_data == True:
             train_x = dict()
             train_y = dict()
@@ -166,10 +178,10 @@ class FedOnlineAggregator(object):
                     train_y[client] = np.hstack((train_y[client], labels))
                     tmp = x.reshape([x.shape[0], 784])
                     train_x[client] = np.vstack((train_x[client], tmp))
-                    """
-                    if train_x[client].shape[0] > sample_per_client:
-                        break
-                    """
+
+                    # if train_x[client].shape[0] > sample_per_client:
+                    #    break
+
                 train_x[client] = np.delete(train_x[client], 0, axis=0)
                 train_y[client] = np.delete(train_y[client], 0, axis=0)
                 all_train_x = np.vstack((all_train_x, train_x[client]))
@@ -181,6 +193,22 @@ class FedOnlineAggregator(object):
             train_x = np.load('../../../fedml_experiments/distributed/fedonline/train_x_all.npy', allow_pickle=True).item()
             train_y = np.load('../../../fedml_experiments/distributed/fedonline/train_y_all.npy', allow_pickle=True).item()
             all_train_x = np.load('../../../fedml_experiments/distributed/fedonline/all_train_x_all.npy')
+        """
+
+        if self.args.dataset == 'fed_shakespeare':
+            for client in range(len(train_local_dict)):
+                num_dict = {}
+                for i in range(90):
+                    num_dict[i] = 0
+                for line in range(train_x[client].shape[0]):
+                    for item in range(train_x[client].shape[1]):
+                        num_dict[train_x[client][line][item].numpy().tolist()] += 1
+                train_x[client] = torch.Tensor(list(num_dict.values()))
+                train_x[client] = (train_x[client]/sum(train_x[client])).unsqueeze(0)
+                if client == 0:
+                    all_train_x = train_x[client]
+                else:
+                    all_train_x = torch.cat((all_train_x, train_x[client]), 0)
 
         pca = PCA(n_components=reduced_dimension)
         pca_method = pca.fit(all_train_x)
@@ -221,10 +249,10 @@ class FedOnlineAggregator(object):
             client_matrix[int(location[client][0]), int(location[client][1])] += 1
             self.client_all_matrix[int(location[client][0]), int(location[client][1])] += 1
         sns.heatmap(client_matrix)
-        plt.savefig('./figures/'+str(round_idx)+'.png')
+        plt.savefig('./figures_1/'+str(round_idx)+'.png')
         plt.close()
         sns.heatmap(self.client_all_matrix)
-        plt.savefig('./figures_all_stages/'+str(round_idx)+'.png')
+        plt.savefig('./figures_all_stages_1/'+str(round_idx)+'.png')
         plt.close()
 
     def fixed_client_sampling(self, round_idx, client_num_in_total, client_num_per_round):
@@ -234,7 +262,7 @@ class FedOnlineAggregator(object):
         else:
             num_clients = min(client_num_per_round, client_num_in_total)
             np.random.seed(round_idx)
-            s = self.score_list
+            s = self.client_score()
             for client in range(client_num_in_total):
                 if np.random.binomial(n=1, p=s[client]):
                     client_indexes.append(client)
@@ -252,7 +280,7 @@ class FedOnlineAggregator(object):
                     tmp_client_list = np.delete(tmp_client_list, np.where(tmp_client_list == add_client_index))
                     client_indexes.append(add_client_index)
             client_indexes = np.array(client_indexes)
-        #self.draw_client_matrix(round_idx, client_indexes)
+        # self.draw_client_matrix(round_idx, client_indexes)
         logging.info("client_indexes = %s" % str(client_indexes))
         return client_indexes
 

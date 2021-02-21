@@ -40,7 +40,7 @@ def add_args(parser):
     return a parser added with args required by fit
     """
     # Training settings
-    parser.add_argument('--load_data', type=bool, default=False)
+    parser.add_argument('--random', type=bool, default=True)
     parser.add_argument('--quanti', type=int, default=50)
 
     parser.add_argument('--model', type=str, default='cnn', metavar='N',
@@ -61,7 +61,7 @@ def add_args(parser):
     parser.add_argument('--client_num_in_total', type=int, default=3400, metavar='NN',
                         help='number of workers in a distributed cluster')
 
-    parser.add_argument('--client_num_per_round', type=int, default=100, metavar='NN',
+    parser.add_argument('--client_num_per_round', type=int, default=10, metavar='NN',
                         help='number of workers')
 
     parser.add_argument('--batch_size', type=int, default=20, metavar='N',
@@ -70,7 +70,7 @@ def add_args(parser):
     parser.add_argument('--client_optimizer', type=str, default='adam',
                         help='SGD with momentum; adam')
 
-    parser.add_argument('--lr', type=float, default=0.0005, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='learning rate (default: 0.001)')
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.001)
@@ -78,7 +78,7 @@ def add_args(parser):
     parser.add_argument('--epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained locally')
 
-    parser.add_argument('--comm_round', type=int, default=50,
+    parser.add_argument('--comm_round', type=int, default=100,
                         help='how many round of communications we shoud use')
 
     parser.add_argument('--is_mobile', type=int, default=0,
@@ -135,7 +135,7 @@ def load_data(args, dataset_name):
         class_num = load_partition_data_federated_cifar100(args.dataset, args.data_dir)
         args.client_num_in_total = client_num
 
-    dataset = [train_data_global, test_data_global, train_data_local_dict, test_data_local_dict, class_num]
+    dataset = [test_data_global, train_data_local_dict, test_data_local_dict, class_num]
     return dataset
 
 
@@ -254,17 +254,17 @@ if __name__ == "__main__":
 
     # load data
     dataset = load_data(args, args.dataset)
-    [train_data_global, test_data_global, train_data_local_dict, test_data_local_dict, class_num] = dataset
+    [test_data_global, train_data_local_dict, test_data_local_dict, class_num] = dataset
 
     # create model.
     # Note if the model is DNN (e.g., ResNet), the training will be very slow.
     # In this case, please use our FedML distributed version (./fedml_experiments/distributed_fedavg)
-    model = create_model(args, model_name=args.model, output_dim=dataset[4])
+    model = create_model(args, model_name=args.model, output_dim=dataset[3])
 
     try:
         # start "federated averaging (FedAvg)"
         FedML_FedOnline_distributed(process_id, worker_number, device, comm,
-                                 model, train_data_global, test_data_global, train_data_local_dict, test_data_local_dict, class_num, args)
+                                 model, test_data_global, train_data_local_dict, test_data_local_dict, class_num, args)
     except Exception as e:
         print(e)
         logging.info('traceback.format_exc():\n%s' % traceback.format_exc())

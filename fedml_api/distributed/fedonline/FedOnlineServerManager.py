@@ -29,9 +29,13 @@ class FedOnlineServerManager(ServerManager):
 
     def send_init_msg(self):
         # sampling clients
-        client_indexes = self.aggregator.fixed_client_sampling(self.round_idx, self.args.client_num_in_total,
-                                                         self.args.client_num_per_round)
-        self.aggregator.client_stats(client_indexes)
+        if self.args.random == True:
+            client_indexes = self.aggregator.client_sampling(self.round_idx, self.args.client_num_in_total,
+                                                                 self.args.client_num_per_round)
+        else:
+            client_indexes = self.aggregator.fixed_client_sampling(self.round_idx, self.args.client_num_in_total,
+                                                                 self.args.client_num_per_round)
+        # self.aggregator.client_stats(client_indexes)
         global_model_params = self.aggregator.get_global_model_params()
         for process_id in range(1, self.size):
             self.send_message_init_config(process_id, global_model_params, client_indexes[process_id - 1])
@@ -64,9 +68,13 @@ class FedOnlineServerManager(ServerManager):
                 print('indexes of clients: ' + str(client_indexes))
             else:
                 # # sampling clients
-                client_indexes = self.aggregator.fixed_client_sampling(self.round_idx, self.args.client_num_in_total,
+                if self.args.random == True:
+                    client_indexes = self.aggregator.client_sampling(self.round_idx, self.args.client_num_in_total,
                                                                  self.args.client_num_per_round)
-                self.aggregator.client_stats(client_indexes)
+                else:
+                    client_indexes = self.aggregator.fixed_client_sampling(self.round_idx, self.args.client_num_in_total,
+                                                                 self.args.client_num_per_round)
+                # self.aggregator.client_stats(client_indexes)
 
             print("size = %d" % self.size)
             if self.args.is_mobile == 1:

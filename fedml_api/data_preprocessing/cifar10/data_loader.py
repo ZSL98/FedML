@@ -101,8 +101,8 @@ def _data_transforms_cifar10():
 def load_cifar10_data(datadir):
     train_transform, test_transform = _data_transforms_cifar10()
 
-    cifar10_train_ds = CIFAR10_truncated(datadir, train=True, download=True, transform=train_transform)
-    cifar10_test_ds = CIFAR10_truncated(datadir, train=False, download=True, transform=test_transform)
+    cifar10_train_ds = CIFAR10_truncated(datadir, train=True, download=False, transform=train_transform)
+    cifar10_test_ds = CIFAR10_truncated(datadir, train=False, download=False, transform=test_transform)
 
     X_train, y_train = cifar10_train_ds.data, cifar10_train_ds.target
     X_test, y_test = cifar10_test_ds.data, cifar10_test_ds.target

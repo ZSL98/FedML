@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 import torch
+import torch.utils.data as data
 
 
 def read_data(train_data_dir, test_data_dir):
@@ -105,15 +106,21 @@ def load_partition_data_mnist(batch_size,
         test_data_num += user_test_data_num
         train_data_local_num_dict[client_idx] = user_train_data_num
 
+        train_ds = data.TensorDataset(torch.tensor(train_data[u]['x']), torch.tensor(train_data[u]['y'], dtype=torch.long))
+        train_dl = data.DataLoader(dataset=train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
+
+        test_ds = data.TensorDataset(torch.tensor(test_data[u]['x']), torch.tensor(test_data[u]['y'], dtype=torch.long))
+        test_dl = data.DataLoader(dataset=test_ds, batch_size=batch_size, shuffle=True, drop_last=False)
+
         # transform to batches
-        train_batch = batch_data(train_data[u], batch_size)
-        test_batch = batch_data(test_data[u], batch_size)
+        # train_batch = batch_data(train_data[u], batch_size)
+        # test_batch = batch_data(test_data[u], batch_size)
 
         # index using client index
-        train_data_local_dict[client_idx] = train_batch
-        test_data_local_dict[client_idx] = test_batch
-        train_data_global += train_batch
-        test_data_global += test_batch
+        train_data_local_dict[client_idx] = train_dl
+        test_data_local_dict[client_idx] = test_dl
+        train_data_global += train_dl
+        test_data_global += test_dl
         client_idx += 1
     client_num = client_idx
     class_num = 10

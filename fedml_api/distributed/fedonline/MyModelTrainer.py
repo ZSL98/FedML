@@ -78,6 +78,9 @@ class MyModelTrainer(ModelTrainer):
                     recall = true_positive / (target.sum(axis=-1) + 1e-13)
                     metrics['test_precision'] += precision.sum().item()
                     metrics['test_recall'] += recall.sum().item()
+                elif args.dataset == "fed_shakespeare":
+                    _, predicted = torch.max(pred, -2)
+                    correct = predicted.eq(target).sum()/80
                 else:
                     _, predicted = torch.max(pred, -1)
                     correct = predicted.eq(target).sum()

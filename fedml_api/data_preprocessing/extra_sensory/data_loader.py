@@ -6,6 +6,7 @@ import io
 import os
 import torch
 import warnings
+import torch.utils.data as data
 
 def parse_header_of_csv(csv_str):
     # Isolate the headline columns:
@@ -206,11 +207,18 @@ def load_partition_data_extra_sensory(data_path='../../../data/extra_sensory/Ext
             test_Y = Y_all[time_horizon+1:]
             #batch_size_dict[client_idx] = get_batch_size(client_idx)
             batch_size_dict[client_idx] = 4
-            train_batch = batch_data(train_X, train_Y, batch_size_dict[client_idx])
-            test_batch = batch_data(test_X, test_Y, batch_size_dict[client_idx])
-            train_data_local_dict[client_idx] = train_batch
-            test_data_local_dict[client_idx] = test_batch
-            test_data_global += test_batch
+
+            train_ds = data.TensorDataset(torch.tensor(train_X, dtype=torch.float), torch.tensor(train_Y, dtype=torch.long))
+            train_dl = data.DataLoader(dataset=train_ds, batch_size=batch_size_dict[client_idx], shuffle=True, drop_last=False)
+
+            test_ds = data.TensorDataset(torch.tensor(test_X, dtype=torch.float), torch.tensor(test_Y, dtype=torch.long))
+            test_dl = data.DataLoader(dataset=test_ds, batch_size=batch_size_dict[client_idx], shuffle=True, drop_last=False)
+
+            # train_batch = batch_data(train_X, train_Y, batch_size_dict[client_idx])
+            # test_batch = batch_data(test_X, test_Y, batch_size_dict[client_idx])
+            train_data_local_dict[client_idx] = train_dl
+            test_data_local_dict[client_idx] = test_dl
+            test_data_global += test_dl
             client_idx += 1
         else:
             continue
