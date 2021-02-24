@@ -57,7 +57,7 @@ def add_args(parser):
     parser.add_argument('--data_dir', type=str, default='./../../../data/cifar10',
                         help='data directory')
 
-    parser.add_argument('--partition_method', type=str, default='hetero', metavar='N',
+    parser.add_argument('--partition_method', type=str, default='hetero_n', metavar='N',
                         help='how to partition the dataset on local workers')
 
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
@@ -75,7 +75,7 @@ def add_args(parser):
     parser.add_argument('--client_optimizer', type=str, default='adam',
                         help='SGD with momentum; adam')
 
-    parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.0001, metavar='LR',
                         help='learning rate (default: 0.001)')
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.001)
@@ -177,6 +177,9 @@ def create_model(args, model_name, output_dim):
         model = CNN_DropOut(False)
     elif model_name == "resnet18_gn" and args.dataset == "fed_cifar100":
         logging.info("ResNet18_GN + Federated_CIFAR100")
+        model = resnet18()
+    elif args.dataset == "cifar10":
+        logging.info("cifar10")
         model = resnet18()
     elif model_name == "rnn" and args.dataset == "fed_shakespeare":
         logging.info("RNN + fed_shakespeare")

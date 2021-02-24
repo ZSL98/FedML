@@ -1,5 +1,6 @@
 import logging
 
+import random
 import numpy as np
 import torch
 import torch.utils.data as data
@@ -147,6 +148,69 @@ def partition_data(dataset, datadir, partition, n_nets, alpha):
         for j in range(n_nets):
             np.random.shuffle(idx_batch[j])
             net_dataidx_map[j] = idx_batch[j]
+
+    elif partition > "noniid-#label0" and partition <= "noniid-#label9":
+        num = eval(partition[13:])
+        if dataset in ('celeba', 'covtype', 'a9a', 'rcv1', 'SUSY'):
+            num = 1
+            K = 2
+        else:
+            K = 10
+        if num == 10:
+            net_dataidx_map ={i:np.ndarray(0,dtype=np.int64) for i in range(n_nets)}
+            for i in range(10):
+                idx_k = np.where(y_train==i)[0]
+                np.random.shuffle(idx_k)
+                split = np.array_split(idx_k,n_nets)
+                for j in range(n_nets):
+                    net_dataidx_map[j]=np.append(net_dataidx_map[j],split[j])
+        else:
+            times=[0 for i in range(10)]
+            contain=[]
+            for i in range(n_nets):
+                current=[i%K]
+                times[i%K]+=1
+                j=1
+                while (j<num):
+                    ind=random.randint(0,K-1)
+                    if (ind not in current):
+                        j=j+1
+                        current.append(ind)
+                        times[ind]+=1
+                contain.append(current)
+            net_dataidx_map ={i:np.ndarray(0,dtype=np.int64) for i in range(n_nets)}
+            for i in range(K):
+                idx_k = np.where(y_train==i)[0]
+                np.random.shuffle(idx_k)
+                split = np.array_split(idx_k,times[i])
+                ids=0
+                for j in range(n_nets):
+                    if i in contain[j]:
+                        net_dataidx_map[j]=np.append(net_dataidx_map[j],split[ids])
+                        ids+=1
+    
+    elif partition == "hetero_n":
+        imb_factor = 1
+        sample_num = dict()
+        contain = dict()
+        for i in range(10):
+            sample_num[i] = int(5000 * (imb_factor**(i / (10 - 1.0))))
+        for j in range(n_nets):
+            t = random.randint(0, sum(list(sample_num.values())) - 1)
+            for i, val in enumerate(list(sample_num.values())):
+                t -= val
+                if t < 0:
+                    contain[j] = i
+                    break
+        net_dataidx_map ={i:np.ndarray(0,dtype=np.int64) for i in range(n_nets)}
+        for i in range(10):
+            idx_k = np.where(y_train==i)[0]
+            np.random.shuffle(idx_k)
+            idx_k = np.random.choice(idx_k, sample_num[i], replace=False)
+            for j in range(n_nets):
+                if contain[j] == i:
+                    net_dataidx_map[j] = np.random.choice(idx_k, 50, replace=True)
+
 
     elif partition == "hetero-fix":
         dataidx_map_file_path = './data_preprocessing/non-iid-distribution/CIFAR10/net_dataidx_map.txt'

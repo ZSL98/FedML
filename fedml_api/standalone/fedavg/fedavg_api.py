@@ -34,9 +34,9 @@ class FedAvgAPI(object):
 
         self.model_trainer = model_trainer
         self._setup_clients(train_data_local_num_dict, train_data_local_dict, test_data_local_dict, model_trainer)
-        #self.client_s = self.client_score()
-        #np.save('../../../fedml_experiments/client_10c_10.npy', self.client_s)
-        self.client_s = np.load('../../../fedml_experiments/client_s_100.npy', allow_pickle=True).item()
+        # self.client_s = self.client_score()
+        # np.save('../../../fedml_experiments/client_10c_10.npy', self.client_s)
+        # self.client_s = np.load('../../../fedml_experiments/client_s_100.npy', allow_pickle=True).item()
 
     def _setup_clients(self, train_data_local_num_dict, train_data_local_dict, test_data_local_dict, model_trainer):
         logging.info("############setup_clients (START)#############")
@@ -241,9 +241,17 @@ class FedAvgAPI(object):
         else:
             num_clients = min(client_num_per_round, client_num_in_total)
             np.random.seed(round_idx)
-            s = self.client_s
+            #s = self.client_s
+            
+            s = dict()
+            imb_factor = 1
+            sample_num = dict()
+            for i in range(10):
+                sample_num[i] = int(5000 * (imb_factor**(i / (10 - 1.0))))
+                s[i] = sum(list(sample_num.values()))/sample_num[i]/10*10/1000
+
             for client in range(client_num_in_total):
-                if np.random.binomial(n=1, p=s[client]):
+                if np.random.binomial(n=1, p=s[self.train_data_local_dict[client].dataset.target[0]]):
                     client_indexes.append(client)
             if len(client_indexes) > client_num_per_round:
                 print('case1')
