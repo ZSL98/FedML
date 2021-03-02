@@ -48,6 +48,7 @@ class CIFAR10_truncated(data.Dataset):
         self.download = download
 
         self.data, self.target = self.__build_truncated_dataset__()
+        self.tensors = [self.data, self.target]
 
     def __build_truncated_dataset__(self):
         print("download = " + str(self.download))

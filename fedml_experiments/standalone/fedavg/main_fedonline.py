@@ -22,7 +22,7 @@ from fedml_api.data_preprocessing.extra_sensory.data_loader import load_partitio
 from fedml_api.data_preprocessing.FederatedEMNIST.data_loader import load_partition_data_federated_emnist
 from fedml_api.data_preprocessing.fed_cifar100.data_loader import load_partition_data_federated_cifar100
 from fedml_api.data_preprocessing.fed_shakespeare.data_loader import load_partition_data_federated_shakespeare
-from fedml_api.data_preprocessing.MNIST.data_loader import load_partition_data_mnist
+from fedml_api.data_preprocessing.MNIST.load_mnist import load_partition_data_mnist
 
 from fedml_api.model.cv.cnn import CNN_DropOut
 from fedml_api.model.cv.resnet_gn import resnet18
@@ -45,8 +45,8 @@ def add_args(parser):
     return a parser added with args required by fit
     """
     # Training settings
-    parser.add_argument('--random', type=bool, default=True)
-    parser.add_argument('--quanti', type=int, default=50)
+    parser.add_argument('--random', type=bool, default=False)
+    parser.add_argument('--quanti', type=int, default=5)
 
     parser.add_argument('--model', type=str, default='cnn', metavar='N',
                         help='neural network used in training')
@@ -60,13 +60,18 @@ def add_args(parser):
     parser.add_argument('--partition_method', type=str, default='hetero_n', metavar='N',
                         help='how to partition the dataset on local workers')
 
+    parser.add_argument('--imb_factor', type=float, default=0.1)
+    parser.add_argument('--var_value', type=str, default='./../../../proportions_8e-2.npy')
+    
+    parser.add_argument('--prob_method', type=str, default='y_max')
+
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
                         help='partition alpha (default: 0.5)')
 
-    parser.add_argument('--client_num_in_total', type=int, default=1000, metavar='NN',
+    parser.add_argument('--client_num_in_total', type=int, default=100, metavar='NN',
                         help='number of workers in a distributed cluster')
 
-    parser.add_argument('--client_num_per_round', type=int, default=10, metavar='NN',
+    parser.add_argument('--client_num_per_round', type=int, default=20, metavar='NN',
                         help='number of workers')
 
     parser.add_argument('--batch_size', type=int, default=10, metavar='N',
@@ -75,7 +80,7 @@ def add_args(parser):
     parser.add_argument('--client_optimizer', type=str, default='adam',
                         help='SGD with momentum; adam')
 
-    parser.add_argument('--lr', type=float, default=0.0001, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.00001, metavar='LR',
                         help='learning rate (default: 0.001)')
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.001)
@@ -83,7 +88,7 @@ def add_args(parser):
     parser.add_argument('--epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained locally')
 
-    parser.add_argument('--comm_round', type=int, default=200,
+    parser.add_argument('--comm_round', type=int, default=2000,
                         help='how many round of communications we shoud use')
 
     parser.add_argument('--is_mobile', type=int, default=0,
@@ -103,20 +108,17 @@ def add_args(parser):
     args = parser.parse_args()
     return args
 
+"""    elif dataset_name == "mnist":
+        logging.info("load_data. dataset_name = %s" % dataset_name)
+        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
+        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
+        class_num = load_partition_data_mnist(args.batch_size)"""
 
 def load_data(args, dataset_name):  
     if dataset_name == "ExtraSensory":
         logging.info("load_data. dataset_name = %s" % dataset_name)
-        # TODO:
         client_num, test_data_global, train_data_local_dict, test_data_local_dict, \
         class_num = load_partition_data_extra_sensory()
-        args.client_num_in_total = client_num
-
-    elif dataset_name == "mnist":
-        logging.info("load_data. dataset_name = %s" % dataset_name)
-        client_num, train_data_num, test_data_num, train_data_global, test_data_global, \
-        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = load_partition_data_mnist(args.batch_size)
         args.client_num_in_total = client_num
 
     elif dataset_name == "femnist":
@@ -139,6 +141,13 @@ def load_data(args, dataset_name):
         train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
         class_num = load_partition_data_federated_cifar100(args.dataset, args.data_dir)
         args.client_num_in_total = client_num
+    
+    elif dataset_name == "mnist":
+        data_loader = load_partition_data_mnist
+        train_data_num, test_data_num, train_data_global, test_data_global, \
+        train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
+        class_num = data_loader(args.imb_factor, args.var_value, args.dataset, args.data_dir, args.partition_method,
+                                args.partition_alpha, args.client_num_in_total, args.batch_size)
 
     else:
         if dataset_name == "cifar10":
@@ -151,7 +160,7 @@ def load_data(args, dataset_name):
             data_loader = load_partition_data_cifar10
         train_data_num, test_data_num, train_data_global, test_data_global, \
         train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
-        class_num = data_loader(args.dataset, args.data_dir, args.partition_method,
+        class_num = data_loader(args.imb_factor, args.var_value, args.dataset, args.data_dir, args.partition_method,
                                 args.partition_alpha, args.client_num_in_total, args.batch_size)
 
     #dataset = [test_data_global, train_data_local_dict, test_data_local_dict, class_num]
@@ -178,8 +187,8 @@ def create_model(args, model_name, output_dim):
     elif model_name == "resnet18_gn" and args.dataset == "fed_cifar100":
         logging.info("ResNet18_GN + Federated_CIFAR100")
         model = resnet18()
-    elif args.dataset == "cifar10":
-        logging.info("cifar10")
+    elif args.dataset == "cifar10" or "cinic10":
+        logging.info("cifar10/cinic10")
         model = resnet18()
     elif model_name == "rnn" and args.dataset == "fed_shakespeare":
         logging.info("RNN + fed_shakespeare")
@@ -225,7 +234,9 @@ if __name__ == "__main__":
 
     wandb.init(
         project="fedml",
-        name="FedAVG-r" + str(args.comm_round) + "-e" + str(args.epochs) + "-lr" + str(args.lr),
+        name=str(args.random) + "-r" + str(args.comm_round) + \
+            "-c" + str(args.client_num_per_round) + args.client_optimizer + \
+            "-e" + str(args.epochs) + args.dataset + "-lr" + str(args.lr),
         config=args
     )
 

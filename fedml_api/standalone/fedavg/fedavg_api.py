@@ -34,7 +34,7 @@ class FedAvgAPI(object):
 
         self.model_trainer = model_trainer
         self._setup_clients(train_data_local_num_dict, train_data_local_dict, test_data_local_dict, model_trainer)
-        # self.client_s = self.client_score()
+        self.client_s = self.client_score(args.prob_method)
         # np.save('../../../fedml_experiments/client_10c_10.npy', self.client_s)
         # self.client_s = np.load('../../../fedml_experiments/client_s_100.npy', allow_pickle=True).item()
 
@@ -76,8 +76,13 @@ class FedAvgAPI(object):
             for scalability: following the original FedAvg algorithm, we uniformly sample a fraction of clients in each round.
             Instead of changing the 'Client' instances, our implementation keeps the 'Client' instances and then updates their local dataset 
             """
-            client_indexes = self._client_sampling(round_idx, self.args.client_num_in_total,
+            if self.args.random == True:
+                client_indexes = self._client_sampling(round_idx, self.args.client_num_in_total,
                                                    self.args.client_num_per_round)
+            else:
+                client_indexes = self.fixed_client_sampling(round_idx, self.args.client_num_in_total,
+                                                   self.args.client_num_per_round)
+            self.client_stats(client_indexes)
             # logging.info("client_indexes = " + str(client_indexes))
 
             for idx, client in enumerate(self.client_list):
@@ -113,12 +118,9 @@ class FedAvgAPI(object):
         train_y_ratio = dict()
         train_local_dict = self.train_data_local_dict
         for client in client_idx:
-            train_y[client] = np.array([])
-            for batch_idx, (x, labels) in enumerate(train_local_dict[client]):
-                train_y[client] = np.hstack((train_y[client], labels))
-            #train_y[client] = np.hstack(labels for batch_idx, (x, labels) in enumerate(train_local_dict[client]))
-            train_y_ratio[client], bin_edges = np.histogram(train_y[client], bins=self.class_num, range=(-0.5, self.class_num-0.5))
-            train_y_ratio[client] = train_y_ratio[client]/len(train_y[client])
+            train_y_ratio[client], bin_edges = np.histogram(train_local_dict[client].dataset.tensors[1],
+                                                                 bins=self.class_num, range=(-0.5, self.class_num-0.5))
+            train_y_ratio[client] = train_y_ratio[client]/len(train_local_dict[client].dataset.tensors[1])
 
         train_selected_y_ratio = np.zeros(self.class_num)
         for client in client_idx:
@@ -130,24 +132,50 @@ class FedAvgAPI(object):
         fig = tpl.figure()
         fig.hist(data_ratio, bin_edges, force_ascii=True)
         fig.show()
+        print('\n')
 
-    def client_score(self):
-        train_local_dict = self.train_data_local_dict
-        client_location = dict()
+    def client_score(self, prob_method):
         client_prob = dict()
-        pca_method, step, global_score_matrix, train_x_mean,\
-             min_bound, reduced_dimension, location = self.global_score()
+        train_local_dict = self.train_data_local_dict
+
+        if prob_method == 'y_max':
+            category_prob = dict()
+            sample_num = dict()
+            train_y_num = dict()
+            train_all_y_num = np.zeros(self.class_num)
+
+            for client in range(self.args.client_num_in_total):
+                train_y_num[client], bin_edges = np.histogram(train_local_dict[client].dataset.tensors[1],
+                                                                 bins=self.class_num, range=(-0.5, self.class_num-0.5))
+                train_all_y_num += train_y_num[client]
+
+            for i in range(self.class_num):
+                category_prob[i] = sum(train_all_y_num)/train_all_y_num[i]/10*self.args.client_num_per_round/self.args.client_num_in_total
+
+            for client in range(self.args.client_num_in_total):
+                client_prob[client] = category_prob[np.where(np.array(train_y_num[client])==max(train_y_num[client]))[0][0]]
+            return client_prob
+
+        elif prob_method == 'y_based_pca':
+            client_location = dict()
+            pca_method, step, global_score_matrix, position,\
+                min_bound, reduced_dimension, location = self.global_score(prob_method)
+
+        elif prob_method == 'x_based_pca':
+            client_location = dict()
+            pca_method, step, global_score_matrix, position,\
+                min_bound, reduced_dimension, location = self.global_score(prob_method)
+
         matrix_not_nan_count = len(global_score_matrix[global_score_matrix != 0])
         global_prob_matrix = np.reciprocal(global_score_matrix)
-        # global_prob_matrix = global_prob_matrix/np.sum(global_prob_matrix[global_prob_matrix != np.inf])*0.1
         global_prob_matrix = global_prob_matrix * self.args.client_num_per_round / matrix_not_nan_count
-        
         for client in range(len(train_local_dict)):
             if client%500 == 0:
                 print("calculating client score %d" %(client) )
+
             location = np.zeros(reduced_dimension)
             for i in range(reduced_dimension):
-                location[i] = (train_x_mean[client][i] - min_bound[i])//step[i]
+                location[i] = (position[client][i] - min_bound[i])//step[i]
                 if location[i] == self.args.quanti:
                     location[i] = self.args.quanti - 1
             client_location[client] = location
@@ -159,70 +187,92 @@ class FedAvgAPI(object):
         return client_prob
 
 
-    def global_score(self, reduced_dimension=2, sample_per_client=10):
+    def global_score(self, prob_method, reduced_dimension=2):
         train_local_dict = self.train_data_local_dict
-
-        train_x = dict()
-        train_y = dict()
-        for client in range(len(train_local_dict)):
-            local_data_num = train_local_dict[client].dataset.tensors[0].shape[0]
-            train_x[client] = train_local_dict[client].dataset.tensors[0].view(local_data_num, -1)
-            train_y[client] = train_local_dict[client].dataset.tensors[1]
-            if client == 0:
-                all_train_x = train_x[client]
-            else:
-                all_train_x = torch.cat((all_train_x, train_x[client]), 0)
-            #all_train_x = np.load('../../../fedml_experiments/distributed/fedonline/femnist_pca.npy')
-
-        if self.args.dataset == 'fed_shakespeare':
+        if prob_method == 'x_based_pca':
+            train_x = dict()
             for client in range(len(train_local_dict)):
-                num_dict = {}
-                for i in range(90):
-                    num_dict[i] = 0
-                for line in range(train_x[client].shape[0]):
-                    for item in range(train_x[client].shape[1]):
-                        num_dict[train_x[client][line][item].numpy().tolist()] += 1
-                train_x[client] = torch.Tensor(list(num_dict.values()))
-                train_x[client] = (train_x[client]/sum(train_x[client])).unsqueeze(0)
+                local_data_num = train_local_dict[client].dataset.tensors[0].shape[0]
+                train_x[client] = train_local_dict[client].dataset.tensors[0].view(local_data_num, -1)
                 if client == 0:
                     all_train_x = train_x[client]
                 else:
                     all_train_x = torch.cat((all_train_x, train_x[client]), 0)
 
-        pca = PCA(n_components=reduced_dimension)
-        pca_method = pca.fit(all_train_x)
-        all_train_x = pca_method.transform(all_train_x)
-        region = np.zeros((self.args.quanti, self.args.quanti))
+            if self.args.dataset == 'fed_shakespeare':
+                for client in range(len(train_local_dict)):
+                    num_dict = {}
+                    for i in range(90):
+                        num_dict[i] = 0
+                    for line in range(train_x[client].shape[0]):
+                        for item in range(train_x[client].shape[1]):
+                           num_dict[train_x[client][line][item].numpy().tolist()] += 1
+                    train_x[client] = torch.Tensor(list(num_dict.values()))
+                    train_x[client] = (train_x[client]/sum(train_x[client])).unsqueeze(0)
+                    if client == 0:
+                        all_train_x = train_x[client]
+                    else:
+                        all_train_x = torch.cat((all_train_x, train_x[client]), 0)
+
+            pca_x = PCA(n_components=reduced_dimension)
+            pca_method_x = pca_x.fit(all_train_x)
+            pca_method = pca_method_x
+            all_train_x = pca_method_x.transform(all_train_x)
+            train_x_mean = dict()
+            for client in range(len(train_local_dict)):
+                train_x[client] = pca_method_x.transform(train_x[client])
+                train_x_mean[client] = list(np.mean(train_x[client], axis=0))
+            position = list(train_x_mean.values())
+
+        else:
+            train_y = dict()
+            train_y_ratio = dict()
+            for client in range(len(train_local_dict)):
+                local_data_num = train_local_dict[client].dataset.tensors[0].shape[0]
+                train_y[client] = train_local_dict[client].dataset.tensors[1]
+                train_y_ratio[client], bin_edges = np.histogram(train_y[client], bins=self.class_num, range=(-0.5, self.class_num-0.5))
+                train_y_ratio[client] = torch.Tensor(train_y_ratio[client])
+                if client == 0:
+                    all_train_y = train_y_ratio[client].unsqueeze(0)
+                else:
+                    all_train_y = torch.cat((all_train_y, train_y_ratio[client].unsqueeze(0)), 0)
+            
+            pca_y = PCA(n_components=reduced_dimension)
+            pca_method_y = pca_y.fit(all_train_y)
+            pca_method = pca_method_y
+            position = pca_method_y.transform(all_train_y)
+
         step = list()
         max_bound = dict()
         min_bound = dict()
-        train_x_mean = dict()
-        for client in range(len(train_local_dict)):
-            train_x[client] = pca_method.transform(train_x[client])
-            train_x_mean[client] = list(np.mean(train_x[client], axis=0))
-
+        region = np.zeros((self.args.quanti, self.args.quanti))
         for i in range(reduced_dimension):
-            max_bound[i] = np.max(list(train_x_mean.values()), axis=0)[i]
-            min_bound[i] = np.min(list(train_x_mean.values()), axis=0)[i]
+            max_bound[i] = np.max(position, axis=0)[i]
+            min_bound[i] = np.min(position, axis=0)[i]
             step.append((max_bound[i]-min_bound[i])/self.args.quanti)
 
         location = dict()
         for client in range(len(train_local_dict)):
             location[client] = np.zeros(reduced_dimension)
             for i in range(reduced_dimension):
-                location[client][i] = (train_x_mean[client][i] - min_bound[i])//step[i]
+                location[client][i] = (position[client][i] - min_bound[i])//step[i]
                 if location[client][i] == self.args.quanti:
                     location[client][i] = self.args.quanti - 1
             region[int(location[client][0]), int(location[client][1])] += 1
-        sns.heatmap(region)
-        plt.savefig('./global_count_1.png')
+        
+        _label = dict()
+        for client in range(len(train_local_dict)):
+            _label[client] = np.where(np.array(train_y_ratio[client])==max(train_y_ratio[client]).tolist())[0][0]
+        plt.scatter(position[:,0], position[:,1], c=list(_label.values()))
+        #sns.heatmap(region)
+        plt.savefig('./global_count_y.png')
         plt.close()
-        return pca_method, step, region, train_x_mean, min_bound, reduced_dimension, location
+        return pca_method, step, region, position, min_bound, reduced_dimension, location
 
 
     def draw_client_matrix(self, round_idx, client_indexes):
         client_matrix = np.zeros((self.args.quanti, self.args.quanti)) 
-        pca_method, step, global_score_matrix, train_x_mean,\
+        pca_method, step, global_score_matrix, position,\
              min_bound, reduced_dimension, location = self.global_score()
         for client in client_indexes:
             client_matrix[int(location[client][0]), int(location[client][1])] += 1
@@ -241,17 +291,11 @@ class FedAvgAPI(object):
         else:
             num_clients = min(client_num_per_round, client_num_in_total)
             np.random.seed(round_idx)
-            #s = self.client_s
-            
-            s = dict()
-            imb_factor = 1
-            sample_num = dict()
-            for i in range(10):
-                sample_num[i] = int(5000 * (imb_factor**(i / (10 - 1.0))))
-                s[i] = sum(list(sample_num.values()))/sample_num[i]/10*10/1000
+            s = self.client_s
 
             for client in range(client_num_in_total):
-                if np.random.binomial(n=1, p=s[self.train_data_local_dict[client].dataset.target[0]]):
+                # if np.random.binomial(n=1, p=s[self.train_data_local_dict[client].dataset.target[0]]):
+                if np.random.binomial(n=1, p=min(1,s[client])):
                     client_indexes.append(client)
             if len(client_indexes) > client_num_per_round:
                 print('case1')

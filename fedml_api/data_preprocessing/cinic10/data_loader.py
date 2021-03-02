@@ -147,7 +147,7 @@ def load_cinic10_data(datadir):
     return (X_train, y_train, X_test, y_test)
 
 
-def partition_data(dataset, datadir, partition, n_nets, alpha):
+def partition_data(imb_factor, var_value, dataset, datadir, partition, n_nets, alpha):
     logging.info("*********partition data***************")
     pil_logger = logging.getLogger('PIL')
     pil_logger.setLevel(logging.INFO)
@@ -190,6 +190,44 @@ def partition_data(dataset, datadir, partition, n_nets, alpha):
         for j in range(n_nets):
             np.random.shuffle(idx_batch[j])
             net_dataidx_map[j] = idx_batch[j]
+
+    elif partition == "hetero_1":
+        imb_factor = 0.1
+        sample_num = dict()
+        contain = dict()
+        for i in range(10):
+            sample_num[i] = int(5000 * (imb_factor**(i / (10 - 1.0))))
+        for j in range(n_nets):
+            t = random.randint(0, sum(list(sample_num.values())) - 1)
+            for i, val in enumerate(list(sample_num.values())):
+                t -= val
+                if t < 0:
+                    contain[j] = i
+                    break
+        net_dataidx_map ={i:np.ndarray(0,dtype=np.int64) for i in range(n_nets)}
+        for i in range(10):
+            idx_k = np.where(y_train==i)[0]
+            np.random.shuffle(idx_k)
+            idx_k = np.random.choice(idx_k, sample_num[i], replace=False)
+            for j in range(n_nets):
+                if contain[j] == i:
+                    net_dataidx_map[j] = np.random.choice(idx_k, 100, replace=False)
+                    idx_k = np.delete(idx_k, np.where(idx_k==net_dataidx_map[j]))
+
+    elif partition == "hetero_n":
+        sample_num = dict()
+        contain = dict()
+        proportions = np.load(var_value, allow_pickle=True).item()
+        for i in range(10):
+            sample_num[i] = int(5000 * (imb_factor**(i / (10 - 1.0))))
+        net_dataidx_map = {i:np.ndarray(0,dtype=np.int64) for i in range(n_nets)}
+        for i in range(10):
+            idx_k = np.where(y_train==i)[0]
+            np.random.shuffle(idx_k)
+            idx_k = np.random.choice(idx_k, sample_num[i], replace=False)
+            for j in range(n_nets):
+                net_dataidx_map[j] = np.append(net_dataidx_map[j], np.random.choice(idx_k, int(proportions[j][i]/100), replace=False))
+                idx_k = np.setdiff1d(idx_k, net_dataidx_map[j])
 
     elif partition == "hetero-fix":
         dataidx_map_file_path = './data_preprocessing/non-iid-distribution/CINIC10/net_dataidx_map.txt'
@@ -285,7 +323,7 @@ def load_partition_data_distributed_cinic10(process_id, dataset, data_dir, parti
 
 
 def load_partition_data_cinic10(dataset, data_dir, partition_method, partition_alpha, client_number, batch_size):
-    X_train, y_train, X_test, y_test, net_dataidx_map, traindata_cls_counts = partition_data(dataset,
+    X_train, y_train, X_test, y_test, net_dataidx_map, traindata_cls_counts = partition_data(imb_factor, var_value, dataset,
                                                                                              data_dir,
                                                                                              partition_method,
                                                                                              client_number,
@@ -296,7 +334,7 @@ def load_partition_data_cinic10(dataset, data_dir, partition_method, partition_a
 
     train_data_global, test_data_global = get_dataloader(dataset, data_dir, batch_size, batch_size)
     logging.info("train_dl_global number = " + str(len(train_data_global)))
-    logging.info("test_dl_global number = " + str(len(train_data_global)))
+    logging.info("test_dl_global number = " + str(len(test_data_global)))
     test_data_num = len(test_data_global)
 
     # get local dataset
