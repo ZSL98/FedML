@@ -12,6 +12,9 @@ from sklearn.neighbors import NearestNeighbors
 import seaborn as sns
 import matplotlib.pyplot as plt
 import termplotlib as tpl
+from itertools import combinations, permutations
+import heapq
+import scipy.stats
 
 
 class FedAvgAPI(object):
@@ -25,6 +28,7 @@ class FedAvgAPI(object):
         self.val_global = None
         self.train_data_num_in_total = train_data_num
         self.test_data_num_in_total = test_data_num
+        self.proportions = np.load(self.args.var_value, allow_pickle=True).item()
 
         self.client_list = []
         self.train_data_local_num_dict = train_data_local_num_dict
@@ -46,6 +50,7 @@ class FedAvgAPI(object):
             self.client_list.append(c)
         logging.info("############setup_clients (END)#############")
 
+    """
     def client_stats(self, client_idx):
         #train_x = dict()
         train_y = dict()
@@ -57,12 +62,15 @@ class FedAvgAPI(object):
                 train_y[client] = np.hstack((train_y[client], labels))
             train_y_ratio[client], bin_edges = np.histogram(train_y[client], bins=self.class_num, range=(-0.5, self.class_num-0.5))
             train_y_ratio[client] = train_y_ratio[client]/len(train_y[client])
+            
+            train_y_ratio[client] = np.array(self.proportions[client])/sum(self.proportions[client])
         
         print('\n')
         train_selected_y_ratio = np.zeros(self.class_num)
         for client in client_idx:
             train_selected_y_ratio += train_y_ratio[client]
         self.plot_stats(train_selected_y_ratio, bin_edges)
+    """
 
     def train(self):
         w_global = self.model_trainer.get_model_params()
@@ -76,11 +84,14 @@ class FedAvgAPI(object):
             for scalability: following the original FedAvg algorithm, we uniformly sample a fraction of clients in each round.
             Instead of changing the 'Client' instances, our implementation keeps the 'Client' instances and then updates their local dataset 
             """
-            if self.args.random == True:
+            if self.args.random == 0:
                 client_indexes = self._client_sampling(round_idx, self.args.client_num_in_total,
                                                    self.args.client_num_per_round)
-            else:
+            elif self.args.random == 1:
                 client_indexes = self.fixed_client_sampling(round_idx, self.args.client_num_in_total,
+                                                   self.args.client_num_per_round)
+            else:
+                client_indexes = self.KLD_client_sampling(round_idx, self.args.client_num_in_total,
                                                    self.args.client_num_per_round)
             self.client_stats(client_indexes)
             # logging.info("client_indexes = " + str(client_indexes))
@@ -120,7 +131,9 @@ class FedAvgAPI(object):
         for client in client_idx:
             train_y_ratio[client], bin_edges = np.histogram(train_local_dict[client].dataset.tensors[1],
                                                                  bins=self.class_num, range=(-0.5, self.class_num-0.5))
-            train_y_ratio[client] = train_y_ratio[client]/len(train_local_dict[client].dataset.tensors[1])
+            #train_y_ratio[client] = train_y_ratio[client]/len(train_local_dict[client].dataset.tensors[1])
+
+            train_y_ratio[client] = np.array(self.proportions[client])/sum(self.proportions[client])
 
         train_selected_y_ratio = np.zeros(self.class_num)
         for client in client_idx:
@@ -138,15 +151,17 @@ class FedAvgAPI(object):
         client_prob = dict()
         train_local_dict = self.train_data_local_dict
 
-        if prob_method == 'y_max':
+        if prob_method == 'y_max#1':
             category_prob = dict()
             sample_num = dict()
             train_y_num = dict()
             train_all_y_num = np.zeros(self.class_num)
 
             for client in range(self.args.client_num_in_total):
-                train_y_num[client], bin_edges = np.histogram(train_local_dict[client].dataset.tensors[1],
-                                                                 bins=self.class_num, range=(-0.5, self.class_num-0.5))
+                #train_y_num[client], bin_edges = np.histogram(train_local_dict[client].dataset.tensors[1],
+                #                                                 bins=self.class_num, range=(-0.5, self.class_num-0.5))
+
+                train_y_num[client] = np.array(self.proportions[client])/sum(self.proportions[client])
                 train_all_y_num += train_y_num[client]
 
             for i in range(self.class_num):
@@ -154,6 +169,90 @@ class FedAvgAPI(object):
 
             for client in range(self.args.client_num_in_total):
                 client_prob[client] = category_prob[np.where(np.array(train_y_num[client])==max(train_y_num[client]))[0][0]]
+            return client_prob
+
+        elif prob_method == 'y_max#2':
+            category_count = dict()
+            category_prob = dict()
+            train_y_num = dict()
+
+            for i in combinations(range(10), 2):
+                category_count[i] = 0
+            
+            max_index_list = dict()
+            for client in range(self.args.client_num_in_total):
+                #train_y_num[client], bin_edges = np.histogram(train_local_dict[client].dataset.tensors[1],
+                #                                             bins=self.class_num, range=(-0.5, self.class_num-0.5))
+                train_y_num[client] = np.array(self.proportions[client])/sum(self.proportions[client])
+                t = copy.deepcopy(list(train_y_num[client]))
+                max_index = []
+                for _ in range(2):
+                    number = max(t)
+                    index = t.index(number)
+                    t[index] = -1
+                    max_index.append(index)
+                t = []
+                max_index_list[client] = tuple(sorted(max_index))
+                category_count[max_index_list[client]] = category_count[max_index_list[client]] + 1
+
+            count_zero = 0
+            for i in combinations(range(10), 2):
+                if category_count[i] == 0:
+                    count_zero = count_zero + 1
+
+            for i in combinations(range(10), 2):
+                if category_count[i] != 0:
+                    category_prob[i] = min(1, 1/category_count[i]/(45-count_zero)*self.args.client_num_per_round)
+            for client in range(self.args.client_num_in_total):
+                client_prob[client] = category_prob[max_index_list[client]]
+            return client_prob
+
+        elif prob_method == 'y_max_mixed':
+            category_count = dict()
+            category_prob = dict()
+            train_y_ratio = dict()
+
+            for i in combinations(range(10), 2):
+                category_count[i] = 0
+            for i in range(10):
+                category_count[i] = 0
+            category_count['a'] = 0
+
+            client_category = dict()
+            for client in range(self.args.client_num_in_total):
+                #train_y_ratio[client], bin_edges = np.histogram(train_local_dict[client].dataset.tensors[1],
+                #                                                 bins=self.class_num, range=(-0.5, self.class_num-0.5))
+                #train_y_ratio[client] = train_y_ratio[client]/len(train_local_dict[client].dataset.tensors[1])
+                train_y_ratio[client] = np.array(self.proportions[client])/sum(self.proportions[client])
+                t = copy.deepcopy(list(train_y_ratio[client]))
+                max_number = []
+                max_index = []
+                for _ in range(2):
+                    number = max(t)
+                    index = t.index(number)
+                    t[index] = -1
+                    max_number.append(number)
+                    max_index.append(index)
+                t = []
+                if max_number[0] >= self.args.t_1:
+                    client_category[client] = max_index[0]
+                elif max_number[0] >= self.args.t_2 and max_number[1] >= self.args.t_2:
+                    client_category[client] = tuple(sorted(max_index))
+                else:
+                    client_category[client] = 'a'
+                category_count[client_category[client]] = category_count[client_category[client]] + 1
+
+            for i in combinations(range(10), 2):
+                if category_count[i] != 0:
+                    category_prob[i] = min(1, 1/category_count[i]/56*self.args.client_num_per_round)
+            for i in range(10):
+                if category_count[i] != 0:
+                    category_prob[i] = min(1, 1/category_count[i]/56*self.args.client_num_per_round)
+            if category_count['a'] != 0:
+                category_prob['a'] = min(1, 1/category_count['a']/56*self.args.client_num_per_round)
+
+            for client in range(self.args.client_num_in_total):
+                client_prob[client] = category_prob[client_category[client]]
             return client_prob
 
         elif prob_method == 'y_based_pca':
@@ -325,6 +424,41 @@ class FedAvgAPI(object):
         logging.info("client_indexes = %s" % str(client_indexes))
         return client_indexes
 
+    def KLD_client_sampling(self, round_idx, client_num_in_total, client_num_per_round):
+        #train_local_dict = self.train_data_local_dict
+        client_indexes = []
+        train_y_ratio = dict()
+        if client_num_in_total == client_num_per_round:
+            client_indexes = [client_index for client_index in range(client_num_in_total)]
+        else:
+            for client in range(client_num_in_total):
+                #train_y_ratio[client], bin_edges = np.histogram(train_local_dict[client].dataset.tensors[1],
+                #                                    bins=self.class_num, range=(-0.5, self.class_num-0.5))
+                #train_y_ratio[client] = train_y_ratio[client]/len(train_local_dict[client].dataset.tensors[1])
+                train_y_ratio[client] = np.array(self.proportions[client])/sum(self.proportions[client])
+            s_client = [client_index for client_index in range(client_num_in_total)]
+            num_clients = min(client_num_per_round, client_num_in_total)
+            np.random.seed(round_idx)
+            client_first = np.random.choice(range(client_num_in_total), 1)[0]
+            s_client.remove(client_first)
+            client_indexes.append(client_first)
+
+            for item in range(num_clients-1):
+                KL_min = float('inf')
+                for client in s_client:
+                    P_m = sum(train_y_ratio[c] for c in client_indexes)
+                    P_i = train_y_ratio[client]
+                    KL = scipy.stats.entropy((P_m + P_i)/(len(client_indexes) + 1), np.ones(10)*0.1)
+                    if KL < KL_min:
+                        client_newly_selected = client
+                        KL_min = KL
+                client_indexes.append(client_newly_selected)
+                s_client.remove(client_newly_selected)
+            client_indexes = np.array(client_indexes)
+        
+        logging.info("client_indexes = %s" % str(client_indexes))
+        return client_indexes
+            
     def _generate_validation_set(self, num_samples=10000):
         test_data_num  = len(self.test_global.dataset)
         sample_indices = random.sample(range(test_data_num), min(num_samples, test_data_num))

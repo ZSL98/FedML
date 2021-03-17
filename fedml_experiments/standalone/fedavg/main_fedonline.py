@@ -45,42 +45,46 @@ def add_args(parser):
     return a parser added with args required by fit
     """
     # Training settings
-    parser.add_argument('--random', type=bool, default=False)
+    parser.add_argument('--random', type=int, default=1)
     parser.add_argument('--quanti', type=int, default=5)
 
-    parser.add_argument('--model', type=str, default='cnn', metavar='N',
+    parser.add_argument('--model', type=str, default='lr', metavar='N',
                         help='neural network used in training')
 
-    parser.add_argument('--dataset', type=str, default='cifar10', metavar='N',
+    parser.add_argument('--dataset', type=str, default='mnist', metavar='N',
                         help='dataset used for training')
 
-    parser.add_argument('--data_dir', type=str, default='./../../../data/cifar10',
+    parser.add_argument('--data_dir', type=str, default='./../../../data/mnist',
                         help='data directory')
 
     parser.add_argument('--partition_method', type=str, default='hetero_n', metavar='N',
                         help='how to partition the dataset on local workers')
 
     parser.add_argument('--imb_factor', type=float, default=0.1)
-    parser.add_argument('--var_value', type=str, default='./../../../proportions_8e-2.npy')
+    parser.add_argument('--var_value', type=str, default='./../../../proportions/EMD_500_1e-1_1_0.npy')
     
-    parser.add_argument('--prob_method', type=str, default='y_max')
+    parser.add_argument('--prob_method', type=str, default='y_max_mixed')
+    parser.add_argument('--t_1', type=float, default=1.0)
+    parser.add_argument('--t_2', type=float, default=0.0)
 
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
                         help='partition alpha (default: 0.5)')
 
-    parser.add_argument('--client_num_in_total', type=int, default=100, metavar='NN',
+    parser.add_argument('--client_num_in_total', type=int, default=500, metavar='NN',
                         help='number of workers in a distributed cluster')
 
-    parser.add_argument('--client_num_per_round', type=int, default=20, metavar='NN',
+    parser.add_argument('--client_num_per_round', type=int, default=50, metavar='NN',
                         help='number of workers')
 
-    parser.add_argument('--batch_size', type=int, default=10, metavar='N',
+    parser.add_argument('--vc_sample', type=int, default=64)
+
+    parser.add_argument('--batch_size', type=int, default=8, metavar='N',
                         help='input batch size for training (default: 64)')
 
-    parser.add_argument('--client_optimizer', type=str, default='adam',
+    parser.add_argument('--client_optimizer', type=str, default='adam_n',
                         help='SGD with momentum; adam')
 
-    parser.add_argument('--lr', type=float, default=0.00001, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='learning rate (default: 0.001)')
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.001)
@@ -88,7 +92,7 @@ def add_args(parser):
     parser.add_argument('--epochs', type=int, default=1, metavar='EP',
                         help='how many epochs will be trained locally')
 
-    parser.add_argument('--comm_round', type=int, default=2000,
+    parser.add_argument('--comm_round', type=int, default=1000,
                         help='how many round of communications we shoud use')
 
     parser.add_argument('--is_mobile', type=int, default=0,
@@ -102,6 +106,9 @@ def add_args(parser):
 
     parser.add_argument('--gpu_num_per_server', type=int, default=4,
                         help='gpu_num_per_server')
+
+    parser.add_argument('--gpu', type=int, default=0,
+                        help='gpu')
 
     parser.add_argument('--ci', type=int, default=0,
                         help='CI')
@@ -147,7 +154,7 @@ def load_data(args, dataset_name):
         train_data_num, test_data_num, train_data_global, test_data_global, \
         train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
         class_num = data_loader(args.imb_factor, args.var_value, args.dataset, args.data_dir, args.partition_method,
-                                args.partition_alpha, args.client_num_in_total, args.batch_size)
+                                args.partition_alpha, args.client_num_in_total, args.batch_size, args.vc_sample)
 
     else:
         if dataset_name == "cifar10":
@@ -161,7 +168,7 @@ def load_data(args, dataset_name):
         train_data_num, test_data_num, train_data_global, test_data_global, \
         train_data_local_num_dict, train_data_local_dict, test_data_local_dict, \
         class_num = data_loader(args.imb_factor, args.var_value, args.dataset, args.data_dir, args.partition_method,
-                                args.partition_alpha, args.client_num_in_total, args.batch_size)
+                                args.partition_alpha, args.client_num_in_total, args.batch_size, args.vc_sample)
 
     #dataset = [test_data_global, train_data_local_dict, test_data_local_dict, class_num]
     dataset = [train_data_num, test_data_num, train_data_global, test_data_global,
@@ -232,13 +239,22 @@ if __name__ == "__main__":
     device = torch.device("cuda:" + str(args.gpu) if torch.cuda.is_available() else "cpu")
     logger.info(device)
 
-    wandb.init(
-        project="fedml",
-        name=str(args.random) + "-r" + str(args.comm_round) + \
-            "-c" + str(args.client_num_per_round) + args.client_optimizer + \
-            "-e" + str(args.epochs) + args.dataset + "-lr" + str(args.lr),
-        config=args
-    )
+    if args.random == 1:
+        wandb.init(
+            project="fedml",
+            name=args.prob_method + "-a" + str(args.client_num_in_total) + \
+            "-c" + str(args.client_num_per_round) + "vc" + str(args.vc_sample) + \
+            "-i" + str(args.imb_factor) + "-v" + args.var_value[-7:-4] + "-" + args.dataset + "-lr" + str(args.lr) + args.client_optimizer,
+            config=args
+        )
+    else:
+        wandb.init(
+            project="fedml",
+            name=str(args.random) + "-a" + str(args.client_num_in_total) + \
+            "-c" + str(args.client_num_per_round) + "vc" + str(args.vc_sample) + \
+            "-i" + str(args.imb_factor) + "-v" + args.var_value[-7:-4] + "-" + args.dataset + "-lr" + str(args.lr) + args.client_optimizer,
+            config=args
+        )
 
     # Set the random seed. The np.random seed determines the dataset partition.
     # The torch_manual_seed determines the initial weight.

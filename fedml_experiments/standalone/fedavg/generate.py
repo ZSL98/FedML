@@ -11,9 +11,9 @@ class generate(object):
         self.sample_num = []
         for i in range(10):
             self.sample_num.append(int(5000 * (self.imb_factor**(i / (10 - 1.0)))))
-        #self.proportions = {i:copy.deepcopy(self.sample_num) for i in range(self.client_num)}
+        self.proportions = {i:copy.deepcopy(self.sample_num) for i in range(self.client_num)}
         #self.proportions = {i:np.zeros(10) for i in range(self.client_num)}
-        self.proportions = np.load('./proportions_500_1e-1_8e-2.npy', allow_pickle=True).item()
+        #self.proportions = np.load('./proportions/proportions_1000_1e-1_4e-2.npy', allow_pickle=True).item()
         self.save_point = copy.deepcopy(self.proportions)
         self.sum_sample_num = sum(self.sample_num)
         self.delta = delta
@@ -24,12 +24,32 @@ class generate(object):
         #        self.proportions[item][i] = self.sum_sample_num
         #print(1)
 
+        """
+        x = np.array(self.sample_num)/sum(self.sample_num)
+        e = 0
+        for i in range(10):
+            a = np.array([0,0,0,0,0,0,0,0,0,0])
+            a[i] = 1
+            #t = x[i] * scipy.stats.entropy(a, x)
+            t = x[i] * sum(np.abs(a-x))
+            e = e + t
+        print(1)
+        """
+        
+
     def var_value(self):
         proportion_base = np.array(self.sample_num)/self.sum_sample_num
         var = dict()
         for i in range(self.client_num):
             var[i] = np.var(np.array(self.proportions[i])/self.sum_sample_num - proportion_base)
         return sum(var.values())/self.client_num
+
+    def EMD(self):
+        proportion_base = np.array(self.sample_num)/self.sum_sample_num
+        emd = dict()
+        for i in range(self.client_num):
+            emd[i] = sum(np.abs(np.array(self.proportions[i])/self.sum_sample_num - proportion_base))
+        return sum(emd.values())/self.client_num
     
     def KLD(self):
         proportion_base = np.array(self.sample_num)/self.sum_sample_num
@@ -62,17 +82,18 @@ if __name__ == "__main__":
     triggered = {i:False for i in range(4)}
     for i in range(500000000):
         s = g.swap(i)
-        if s > 0.02 and triggered[0] == False:
-            np.save('./proportions_500_1e-1_2e-2.npy', g.proportions)
+        if s > 0.5 and triggered[0] == False:
+            np.save('./proportions/EMD_500_1e-1_0_5.npy', g.proportions)
             triggered[0] = True
-        elif s > 0.04 and triggered[1] == False:
-            np.save('./proportions_500_1e-1_4e-2.npy', g.proportions)
+        elif s > 1 and triggered[1] == False:
+            np.save('./proportions/EMD_500_1e-1_1_0.npy', g.proportions)
             triggered[1] = True
-        elif s > 0.06 and triggered[2] == False:
-            np.save('./proportions_500_1e-1_6e-2.npy', g.proportions)
+        elif s > 1.5 and triggered[2] == False:
+            np.save('./proportions/EMD_500_1e-1_1_5.npy', g.proportions)
             triggered[2] = True
-        elif s > 0.08 and triggered[3] == False:
-            np.save('./proportions_500_1e-1_8e-2.npy', g.proportions)
+            break
+        elif s > 2 and triggered[3] == False:
+            np.save('./proportions/KLD_500_5e-1_2_0.npy', g.proportions)
             triggered[3] = True
             break
     print('End')
