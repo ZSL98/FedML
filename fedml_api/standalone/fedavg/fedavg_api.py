@@ -15,6 +15,7 @@ import termplotlib as tpl
 from itertools import combinations, permutations
 import heapq
 import scipy.stats
+import time
 
 
 class FedAvgAPI(object):
@@ -35,6 +36,10 @@ class FedAvgAPI(object):
         self.train_data_local_dict = train_data_local_dict
         self.test_data_local_dict = test_data_local_dict
         self.class_num = class_num
+
+        self.t_1 = self.args.t_1
+        self.t_2 = self.args.t_2
+        self.reverse = False
 
         self.model_trainer = model_trainer
         self._setup_clients(train_data_local_num_dict, train_data_local_dict, test_data_local_dict, model_trainer)
@@ -72,6 +77,37 @@ class FedAvgAPI(object):
         self.plot_stats(train_selected_y_ratio, bin_edges)
     """
 
+    def pre_train(self, t1=0, t2=0):
+        proportion_base = np.ones(10)*0.1
+        emd_avg = dict()
+        bin_edges = np.array([-0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5])
+        for t1 in np.arange(11)*0.1:
+            for t2 in np.arange(11)*0.1:
+                ratio = np.zeros(10)
+                self.t_1 = t1
+                self.t_2 = t2
+                self.client_s = self.client_score(self.args.prob_method)
+                emd = dict()
+                for round_idx in range(100):
+                    if self.args.random == 0:
+                        client_indexes = self._client_sampling(round_idx, self.args.client_num_in_total,
+                                                   self.args.client_num_per_round)
+                    elif self.args.random == 1:
+                        client_indexes = self.fixed_client_sampling(round_idx, self.args.client_num_in_total,
+                                                   self.args.client_num_per_round)
+                    else:
+                        client_indexes = self.KLD_client_sampling(round_idx, self.args.client_num_in_total,
+                                                   self.args.client_num_per_round)
+                    train_ratio, bin_edges = self.client_stats(client_indexes)
+                    ratio = ratio + train_ratio
+                    emd[round_idx] = sum(np.abs(np.array(train_ratio)/sum(train_ratio) - proportion_base))
+                emd_avg[(t1,t2)] = np.mean(list(emd.values()))
+                print(str(t1)+'-'+str(t2))
+                self.plot_stats(ratio, bin_edges)
+        print(min(emd_avg,key=emd_avg.get))
+        print(emd_avg[min(emd_avg,key=emd_avg.get)])
+        print(1)
+
     def train(self):
         w_global = self.model_trainer.get_model_params()
         for round_idx in range(self.args.comm_round):
@@ -93,7 +129,8 @@ class FedAvgAPI(object):
             else:
                 client_indexes = self.KLD_client_sampling(round_idx, self.args.client_num_in_total,
                                                    self.args.client_num_per_round)
-            self.client_stats(client_indexes)
+            train_ratio, bin_edges = self.client_stats(client_indexes)
+            self.plot_stats(train_ratio, bin_edges)
             # logging.info("client_indexes = " + str(client_indexes))
 
             for idx, client in enumerate(self.client_list):
@@ -104,7 +141,10 @@ class FedAvgAPI(object):
                                             self.train_data_local_num_dict[client_idx])
 
                 # train on new dataset
+                time1 = time.time()
                 w = client.train(w_global)
+                time2 = time.time()
+                print(time2-time1)
                 # self.logger.info("local weights = " + str(w))
                 w_locals.append((client.get_sample_number(), copy.deepcopy(w)))
 
@@ -138,7 +178,8 @@ class FedAvgAPI(object):
         train_selected_y_ratio = np.zeros(self.class_num)
         for client in client_idx:
             train_selected_y_ratio += train_y_ratio[client]
-        self.plot_stats(train_selected_y_ratio, bin_edges)
+        
+        return train_selected_y_ratio, bin_edges
 
     def plot_stats(self, data_ratio, bin_edges):
         #counts, bin_edges = np.histogram(train_selected_y, bins=10, range=(-0.5, 9.5))
@@ -234,22 +275,31 @@ class FedAvgAPI(object):
                     max_number.append(number)
                     max_index.append(index)
                 t = []
-                if max_number[0] >= self.args.t_1:
-                    client_category[client] = max_index[0]
-                elif max_number[0] >= self.args.t_2 and max_number[1] >= self.args.t_2:
-                    client_category[client] = tuple(sorted(max_index))
+                if not self.reverse:
+                    if max_number[0] >= self.t_1:
+                        client_category[client] = max_index[0]
+                    elif max_number[0] >= self.t_2 and max_number[1] >= self.t_2:
+                        client_category[client] = tuple(sorted(max_index))
+                    else:
+                        client_category[client] = 'a'
                 else:
-                    client_category[client] = 'a'
+                    if max_number[0] >= self.t_2 and max_number[1] >= self.t_2:
+                        client_category[client] = tuple(sorted(max_index))
+                    elif max_number[0] >= self.t_1:
+                        client_category[client] = max_index[0]
+                    else:
+                        client_category[client] = 'a'                    
                 category_count[client_category[client]] = category_count[client_category[client]] + 1
 
+            count_zero = list(category_count.values()).count(0)
             for i in combinations(range(10), 2):
                 if category_count[i] != 0:
-                    category_prob[i] = min(1, 1/category_count[i]/56*self.args.client_num_per_round)
+                    category_prob[i] = min(1, 1/category_count[i]/(56-count_zero)*self.args.client_num_per_round)
             for i in range(10):
                 if category_count[i] != 0:
-                    category_prob[i] = min(1, 1/category_count[i]/56*self.args.client_num_per_round)
+                    category_prob[i] = min(1, 1/category_count[i]/(56-count_zero)*self.args.client_num_per_round)
             if category_count['a'] != 0:
-                category_prob['a'] = min(1, 1/category_count['a']/56*self.args.client_num_per_round)
+                category_prob['a'] = min(1, 1/category_count['a']/(56-count_zero)*self.args.client_num_per_round)
 
             for client in range(self.args.client_num_in_total):
                 client_prob[client] = category_prob[client_category[client]]
@@ -397,11 +447,11 @@ class FedAvgAPI(object):
                 if np.random.binomial(n=1, p=min(1,s[client])):
                     client_indexes.append(client)
             if len(client_indexes) > client_num_per_round:
-                print('case1')
+                # print('case1')
                 for i in range(len(client_indexes)-client_num_per_round):
                     client_indexes.remove(random.choice(client_indexes))
             elif len(client_indexes) < client_num_per_round:
-                print('case2')
+                # print('case2')
                 tmp_client_list = np.array(range(client_num_in_total))
                 for i in range(client_num_per_round-len(client_indexes)):
                     add_client_index = np.random.choice(tmp_client_list)
@@ -411,7 +461,7 @@ class FedAvgAPI(object):
                     client_indexes.append(add_client_index)
             client_indexes = np.array(client_indexes)
         # self.draw_client_matrix(round_idx, client_indexes)
-        logging.info("client_indexes = %s" % str(client_indexes))
+        # logging.info("client_indexes = %s" % str(client_indexes))
         return client_indexes
 
     def _client_sampling(self, round_idx, client_num_in_total, client_num_per_round):

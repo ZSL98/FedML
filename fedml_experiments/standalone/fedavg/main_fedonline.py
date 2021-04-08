@@ -10,6 +10,7 @@ import numpy as np
 import psutil
 import setproctitle
 import torch
+import time
 import wandb
 from mpi4py import MPI
 
@@ -45,10 +46,10 @@ def add_args(parser):
     return a parser added with args required by fit
     """
     # Training settings
-    parser.add_argument('--random', type=int, default=1)
+    parser.add_argument('--random', type=int, default=0)
     parser.add_argument('--quanti', type=int, default=5)
 
-    parser.add_argument('--model', type=str, default='lr', metavar='N',
+    parser.add_argument('--model', type=str, default='cnn', metavar='N',
                         help='neural network used in training')
 
     parser.add_argument('--dataset', type=str, default='mnist', metavar='N',
@@ -61,7 +62,7 @@ def add_args(parser):
                         help='how to partition the dataset on local workers')
 
     parser.add_argument('--imb_factor', type=float, default=0.1)
-    parser.add_argument('--var_value', type=str, default='./../../../proportions/EMD_500_1e-1_1_0.npy')
+    parser.add_argument('--var_value', type=str, default='./../../../proportions/emd_1000_1e-1_0_5.npy')
     
     parser.add_argument('--prob_method', type=str, default='y_max_mixed')
     parser.add_argument('--t_1', type=float, default=1.0)
@@ -70,13 +71,13 @@ def add_args(parser):
     parser.add_argument('--partition_alpha', type=float, default=0.5, metavar='PA',
                         help='partition alpha (default: 0.5)')
 
-    parser.add_argument('--client_num_in_total', type=int, default=500, metavar='NN',
+    parser.add_argument('--client_num_in_total', type=int, default=1000, metavar='NN',
                         help='number of workers in a distributed cluster')
 
-    parser.add_argument('--client_num_per_round', type=int, default=50, metavar='NN',
+    parser.add_argument('--client_num_per_round', type=int, default=20, metavar='NN',
                         help='number of workers')
 
-    parser.add_argument('--vc_sample', type=int, default=64)
+    parser.add_argument('--vc_sample', type=int, default=128)
 
     parser.add_argument('--batch_size', type=int, default=8, metavar='N',
                         help='input batch size for training (default: 64)')
@@ -84,12 +85,12 @@ def add_args(parser):
     parser.add_argument('--client_optimizer', type=str, default='adam_n',
                         help='SGD with momentum; adam')
 
-    parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
+    parser.add_argument('--lr', type=float, default=0.0001, metavar='LR',
                         help='learning rate (default: 0.001)')
 
     parser.add_argument('--wd', help='weight decay parameter;', type=float, default=0.001)
 
-    parser.add_argument('--epochs', type=int, default=1, metavar='EP',
+    parser.add_argument('--epochs', type=int, default=5, metavar='EP',
                         help='how many epochs will be trained locally')
 
     parser.add_argument('--comm_round', type=int, default=1000,
@@ -188,9 +189,9 @@ def create_model(args, model_name, output_dim):
     elif model_name == "rnn" and args.dataset == "shakespeare":
         logging.info("RNN + shakespeare")
         model = RNN_OriginalFedAvg()
-    elif model_name == "cnn" and args.dataset == "femnist":
-        logging.info("CNN + FederatedEMNIST")
-        model = CNN_DropOut(False)
+    elif model_name == "cnn" and args.dataset == "mnist":
+        logging.info("CNN + MNIST")
+        model = CNN_DropOut(True)
     elif model_name == "resnet18_gn" and args.dataset == "fed_cifar100":
         logging.info("ResNet18_GN + Federated_CIFAR100")
         model = resnet18()
@@ -241,18 +242,18 @@ if __name__ == "__main__":
 
     if args.random == 1:
         wandb.init(
-            project="fedml",
-            name=args.prob_method + "-a" + str(args.client_num_in_total) + \
-            "-c" + str(args.client_num_per_round) + "vc" + str(args.vc_sample) + \
-            "-i" + str(args.imb_factor) + "-v" + args.var_value[-7:-4] + "-" + args.dataset + "-lr" + str(args.lr) + args.client_optimizer,
+            project="FL_new",
+            name= 'e5-'+str(args.client_num_per_round) + \
+            "/" + str(args.client_num_in_total) + \
+            "-" + str(args.imb_factor) + "-" + args.var_value[-7:-4] + "-" + args.dataset + '-' + str(args.t_1) + '/' + str(args.t_2),
             config=args
         )
     else:
         wandb.init(
-            project="fedml",
-            name=str(args.random) + "-a" + str(args.client_num_in_total) + \
-            "-c" + str(args.client_num_per_round) + "vc" + str(args.vc_sample) + \
-            "-i" + str(args.imb_factor) + "-v" + args.var_value[-7:-4] + "-" + args.dataset + "-lr" + str(args.lr) + args.client_optimizer,
+            project="FL_new",
+            name='e5-'+str(args.client_num_per_round) + \
+            "/" + str(args.client_num_in_total) + \
+            "-" + str(args.imb_factor) + "-" + args.var_value[-7:-4] + "-" + args.dataset + '-' + str(args.random),
             config=args
         )
 

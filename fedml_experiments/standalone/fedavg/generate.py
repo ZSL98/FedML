@@ -5,15 +5,15 @@ import scipy.stats
 
 class generate(object):
     def __init__(self, delta):
-        self.client_num = 500
+        self.client_num = 1000
         self.imb_factor = 0.1
         self.var_ori = 0
         self.sample_num = []
         for i in range(10):
             self.sample_num.append(int(5000 * (self.imb_factor**(i / (10 - 1.0)))))
-        self.proportions = {i:copy.deepcopy(self.sample_num) for i in range(self.client_num)}
+        #self.proportions = {i:copy.deepcopy(self.sample_num) for i in range(self.client_num)}
         #self.proportions = {i:np.zeros(10) for i in range(self.client_num)}
-        #self.proportions = np.load('./proportions/proportions_1000_1e-1_4e-2.npy', allow_pickle=True).item()
+        self.proportions = np.load('./proportions/EMD_1000_1e-1_1_5.npy', allow_pickle=True).item()
         self.save_point = copy.deepcopy(self.proportions)
         self.sum_sample_num = sum(self.sample_num)
         self.delta = delta
@@ -23,6 +23,7 @@ class generate(object):
         #    for item in x[i]:
         #        self.proportions[item][i] = self.sum_sample_num
         #print(1)
+        print(self.EMD())
 
         """
         x = np.array(self.sample_num)/sum(self.sample_num)
@@ -78,19 +79,16 @@ class generate(object):
         return self.var_ori 
 
 if __name__ == "__main__":
-    g = generate(50)
-    triggered = {i:False for i in range(4)}
+    g = generate(500)
+    triggered = {i:False for i in range(8)}
     for i in range(500000000):
         s = g.swap(i)
-        if s > 0.5 and triggered[0] == False:
-            np.save('./proportions/EMD_500_1e-1_0_5.npy', g.proportions)
-            triggered[0] = True
-        elif s > 1 and triggered[1] == False:
-            np.save('./proportions/EMD_500_1e-1_1_0.npy', g.proportions)
-            triggered[1] = True
-        elif s > 1.5 and triggered[2] == False:
-            np.save('./proportions/EMD_500_1e-1_1_5.npy', g.proportions)
-            triggered[2] = True
+        if s > 1.25 and triggered[4] == False:
+            np.save('./proportions/EMD_1000_2e-1_125.npy', g.proportions)
+            triggered[4] = True
+        elif s > 1.5 and triggered[5] == False:
+            np.save('./proportions/EMD_1000_2e-1_1_5.npy', g.proportions)
+            triggered[5] = True
             break
         elif s > 2 and triggered[3] == False:
             np.save('./proportions/KLD_500_5e-1_2_0.npy', g.proportions)

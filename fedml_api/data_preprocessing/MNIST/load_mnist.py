@@ -25,6 +25,7 @@ class MNIST_truncated(data.Dataset):
         self.download = download
 
         self.data, self.target = self.__build_truncated_dataset__()
+        self.tensors = [self.data, self.target]
 
     def __build_truncated_dataset__(self):
 
@@ -244,6 +245,7 @@ def partition_data(imb_factor, var_value, dataset, datadir, partition, n_nets, a
     return X_train, y_train, X_test, y_test, net_dataidx_map, traindata_cls_counts
 
 def load_partition_data_mnist(imb_factor, var_value, dataset, data_dir, partition_method, partition_alpha, client_number, batch_size, vc_sample):
+    '''
     X_train, y_train, X_test, y_test, net_dataidx_map, traindata_cls_counts = partition_data(imb_factor, var_value, dataset,
                                                                                              data_dir,
                                                                                              partition_method,
@@ -252,6 +254,9 @@ def load_partition_data_mnist(imb_factor, var_value, dataset, data_dir, partitio
     class_num = len(np.unique(y_train))
     logging.info("traindata_cls_counts = " + str(traindata_cls_counts))
     train_data_num = sum([len(net_dataidx_map[r]) for r in range(client_number)])
+    '''
+    class_num = 10
+    train_data_num = 50000
 
     dl_obj = MNIST_truncated
     transform = transforms.Compose([transforms.ToTensor()])
@@ -259,8 +264,8 @@ def load_partition_data_mnist(imb_factor, var_value, dataset, data_dir, partitio
     train_ds = dl_obj(data_dir, train=True, transform=transform, download=True)
     test_ds = dl_obj(data_dir, train=False, transform=transform, download=True)
 
-    train_ds = data.TensorDataset(torch.tensor(train_ds.data.reshape(-1,784), dtype=torch.float), torch.tensor(train_ds.target, dtype=torch.long))
-    test_ds = data.TensorDataset(torch.tensor(test_ds.data.reshape(-1,784), dtype=torch.float), torch.tensor(test_ds.target, dtype=torch.long))
+    train_ds = data.TensorDataset(torch.tensor(train_ds.data, dtype=torch.float), torch.tensor(train_ds.target, dtype=torch.long))
+    test_ds = data.TensorDataset(torch.tensor(test_ds.data, dtype=torch.float), torch.tensor(test_ds.target, dtype=torch.long))
 
     train_data_global, test_data_global = get_dataloader(train_ds, test_ds, batch_size, batch_size, vc_sample)
     logging.info("train_dl_global number = " + str(len(train_data_global)))
@@ -273,8 +278,8 @@ def load_partition_data_mnist(imb_factor, var_value, dataset, data_dir, partitio
     test_data_local_dict = dict()
 
     for client_idx in range(client_number):
-        dataidxs = net_dataidx_map[client_idx]
-        local_data_num = len(dataidxs)
+        # dataidxs = net_dataidx_map[client_idx]
+        local_data_num = 128
         data_local_num_dict[client_idx] = local_data_num
         logging.info("client_idx = %d, local_sample_number = %d" % (client_idx, local_data_num))
 
